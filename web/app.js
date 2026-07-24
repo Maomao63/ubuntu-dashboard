@@ -29,6 +29,10 @@ function applyLanguage(language) {
   updateClock();
   if (overview) render(overview);
   if (currentPage === "shares") loadShares(selectedShare, selectedPath);
+  if (sessionInfo) {
+    loadVersionCheck();
+    loadHostUpdates();
+  }
 }
 
 function updatePageHeading() {
@@ -241,8 +245,7 @@ function renderContainers(docker) {
 function render(data) {
   overview = data;
   const system = data.system, docker = data.docker;
-  $("#version").textContent = `Version ${data.version} · latest`;
-  $("#version-badge").textContent = `v${data.version} · latest`;
+  $("#version").textContent = `v${data.version} · latest`;
   $("#distro-name").textContent = system.distro.name.toUpperCase();
   $("#distro-logo").src = `https://cdn.simpleicons.org/${encodeURIComponent(system.distro.icon)}/${system.distro.color.replace("#", "")}`;
   document.documentElement.style.setProperty("--brand", system.distro.color);
@@ -253,7 +256,6 @@ function render(data) {
   $("#os").textContent = system.os;
   $("#kernel").textContent = system.kernel;
   $("#uptime").textContent = duration(system.uptime);
-  $("#load").textContent = system.load.join(" · ");
   $("#cpu-value").textContent = `${system.cpu.percent}%`;
   $("#cpu-sub").textContent = `${system.cpu.cores} ${t("common.cores")} · ${system.cpu.model}`;
   $("#cpu-ring-value").textContent = Math.round(system.cpu.percent);
@@ -297,19 +299,55 @@ async function loadOverview(manual = false) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     render(await response.json());
     failedUpdates = 0;
-    $(".live-status").classList.remove("offline");
+    $(".sidebar-live").classList.remove("offline");
     $("#live-status").textContent = `LIVE · ${LIVE_INTERVAL_MS} ms`;
     if (manual) toast("Daten wurden aktualisiert");
   } catch (error) {
     failedUpdates++;
     toast(`Verbindung fehlgeschlagen: ${error.message}`, true);
     $("#updated").textContent = "Keine Verbindung";
-    $(".live-status").classList.add("offline");
+    $(".sidebar-live").classList.add("offline");
     $("#live-status").textContent = t("live.disconnected");
   } finally {
     busy = false;
     $("#refresh").classList.remove("spinning");
     scheduleLiveUpdate(document.hidden ? 5000 : failedUpdates ? 3000 : LIVE_INTERVAL_MS);
+  }
+}
+
+async function loadVersionCheck() {
+  const status = $("#version-check");
+  try {
+    const response = await fetch("/api/version", {cache: "no-store"});
+    const data = await response.json();
+    status.classList.toggle("update", data.updateAvailable);
+    status.querySelector("i").textContent = data.updateAvailable ? "!" : "✓";
+    status.querySelector("span").textContent = data.updateAvailable ? t("version.available") : t("version.latest");
+    status.title = data.latest ? `${t("version.github")}: v${data.latest}` : t("version.unavailable");
+  } catch {
+    status.classList.add("unknown");
+    status.querySelector("i").textContent = "?";
+    status.querySelector("span").textContent = t("version.unavailable");
+  }
+}
+
+async function loadHostUpdates() {
+  try {
+    const response = await fetch("/api/host-updates", {cache: "no-store"});
+    const data = await response.json();
+    if (data.count === null) {
+      $("#host-updates").textContent = t("updates.unavailable");
+      $("#host-updates").className = "unknown";
+    } else if (data.count > 0) {
+      $("#host-updates").textContent = `${data.count} ${t("updates.available")}`;
+      $("#host-updates").className = "available";
+    } else {
+      $("#host-updates").textContent = t("updates.current");
+      $("#host-updates").className = "current";
+    }
+  } catch {
+    $("#host-updates").textContent = t("updates.unavailable");
+    $("#host-updates").className = "unknown";
   }
 }
 
@@ -345,7 +383,7 @@ function shareUrl(share, path = "") {
   const params = new URLSearchParams();
   if (share !== null && share !== undefined) params.set("share", share);
   if (path) params.set("path", path);
-  return `/api/shares?${params}`;
+  return `/api/files?${params}`;
 }
 
 async function loadShares(share = null, path = "") {
@@ -355,6 +393,8 @@ async function loadShares(share = null, path = "") {
     if (!response.ok) throw new Error(data.error || "Freigaben konnten nicht geladen werden");
     selectedShare = data.selected ?? share;
     selectedPath = data.relative || "";
+    $("#new-folder").disabled = data.selected === undefined;
+    $("#new-file").disabled = data.selected === undefined;
     $("#share-list").classList.remove("loading");
     $("#share-list").innerHTML = data.shares.length ? data.shares.map(item => `
       <button class="share-button ${Number(selectedShare) === item.id ? "active" : ""}" data-share="${item.id}">
@@ -393,14 +433,142 @@ function renderFiles(data) {
         <span class="file-icon ${item.type === "directory" ? "folder" : ""}">${item.type === "directory" ? "▰" : "▤"}</span>
         ${item.type === "directory"
           ? `<button data-open-path="${escapeHtml(nextPath)}">${escapeHtml(item.name)}</button>`
-          : `<span>${escapeHtml(item.name)}</span>`}
+          : `<button data-edit-path="${escapeHtml(nextPath)}">${escapeHtml(item.name)}</button>`}
       </div>
       <span class="file-meta">${item.type === "directory" ? t("common.folder") : bytes(item.size)}</span>
       <span class="file-meta modified">${new Date(item.modified * 1000).toLocaleString("de-DE", {dateStyle: "short", timeStyle: "short"})}</span>
+      <span class="file-actions">
+        ${item.type === "file" ? `<button class="file-action" data-edit-path="${escapeHtml(nextPath)}" title="${escapeHtml(t("common.edit"))}">✎</button>` : ""}
+        <button class="file-action danger" data-delete-path="${escapeHtml(nextPath)}" data-delete-name="${escapeHtml(item.name)}" title="${escapeHtml(t("common.delete"))}">⌫</button>
+      </span>
     </div>`;
   }).join("") : `<div class="empty-state">${t("common.empty")}</div>`;
   $$("[data-open-path]").forEach(button => button.addEventListener("click", () => loadShares(selectedShare, button.dataset.openPath)));
+  $$("[data-edit-path]").forEach(button => button.addEventListener("click", () => openTextEditor(button.dataset.editPath)));
+  $$("[data-delete-path]").forEach(button => button.addEventListener("click", () => openDeleteDialog(button.dataset.deletePath, button.dataset.deleteName)));
 }
+
+async function fileAction(action, payload) {
+  const response = await fetch(`/api/files/${action}`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken},
+    body: JSON.stringify({share: selectedShare, ...payload})
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "File operation failed");
+  return data;
+}
+
+function openNewFileDialog() {
+  $("#file-dialog-form").dataset.mode = "create";
+  $("#file-dialog-form").dataset.path = selectedPath;
+  $("#file-dialog-title").textContent = t("browser.newFileTitle");
+  $("#file-name-field").hidden = false;
+  $("#file-name").value = "";
+  $("#file-content").value = "";
+  $("#file-dialog-error").textContent = "";
+  $("#file-dialog").showModal();
+  $("#file-name").focus();
+}
+
+async function openTextEditor(path) {
+  try {
+    const params = new URLSearchParams({share: selectedShare, path});
+    const response = await fetch(`/api/file?${params}`, {cache: "no-store"});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "File could not be opened");
+    $("#file-dialog-form").dataset.mode = "save";
+    $("#file-dialog-form").dataset.path = path;
+    $("#file-dialog-title").textContent = data.name;
+    $("#file-name-field").hidden = true;
+    $("#file-content").value = data.content;
+    $("#file-dialog-error").textContent = "";
+    $("#file-dialog").showModal();
+    $("#file-content").focus();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+let deleteTarget = null;
+function openDeleteDialog(path, name) {
+  deleteTarget = path;
+  $("#delete-name").textContent = name;
+  $("#delete-dialog").showModal();
+}
+
+$("#new-file").addEventListener("click", openNewFileDialog);
+$("#file-content").addEventListener("keydown", event => {
+  if (event.key !== "Tab") return;
+  event.preventDefault();
+  const field = event.currentTarget;
+  const start = field.selectionStart;
+  field.setRangeText("  ", start, field.selectionEnd, "end");
+});
+$("#new-folder").addEventListener("click", () => {
+  $("#folder-name").value = "";
+  $("#folder-dialog-error").textContent = "";
+  $("#folder-dialog").showModal();
+  $("#folder-name").focus();
+});
+
+$$("[data-close-dialog]").forEach(button => button.addEventListener("click", () => {
+  document.getElementById(button.dataset.closeDialog).close();
+}));
+
+$("#file-dialog-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector(".dialog-primary");
+  button.disabled = true;
+  try {
+    if (form.dataset.mode === "create") {
+      await fileAction("create", {path: selectedPath, name: $("#file-name").value, content: $("#file-content").value});
+    } else {
+      await fileAction("save", {path: form.dataset.path, content: $("#file-content").value});
+    }
+    $("#file-dialog").close();
+    await loadShares(selectedShare, selectedPath);
+    toast(t("browser.saved"));
+  } catch (error) {
+    $("#file-dialog-error").textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("#folder-dialog-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector(".dialog-primary");
+  button.disabled = true;
+  try {
+    await fileAction("mkdir", {path: selectedPath, name: $("#folder-name").value});
+    $("#folder-dialog").close();
+    await loadShares(selectedShare, selectedPath);
+    toast(t("browser.created"));
+  } catch (error) {
+    $("#folder-dialog-error").textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("#delete-dialog-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector(".dialog-danger");
+  button.disabled = true;
+  try {
+    await fileAction("delete", {path: deleteTarget});
+    $("#delete-dialog").close();
+    await loadShares(selectedShare, selectedPath);
+    toast(t("browser.deleted"));
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+    deleteTarget = null;
+  }
+});
 
 async function loadProcesses() {
   try {
@@ -610,6 +778,8 @@ async function bootstrap() {
     $("#ssh-host").value = `${sessionInfo.sshHost}:${sessionInfo.sshPort}`;
     applyLanguage(currentLanguage);
     loadOverview();
+    setInterval(loadVersionCheck, 15 * 60 * 1000);
+    setInterval(loadHostUpdates, 30 * 60 * 1000);
     try {
       setupSshTerminal();
     } catch (terminalError) {

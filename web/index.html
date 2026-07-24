@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0e13">
   <title>Ubuntu Server Dashboard</title>
-  <link rel="stylesheet" href="/vendor/xterm.css?v=1.5.0">
-  <link rel="stylesheet" href="/styles.css?v=1.5.0">
+  <link rel="stylesheet" href="/vendor/xterm.css?v=1.6.0">
+  <link rel="stylesheet" href="/styles.css?v=1.6.0">
 </head>
 <body>
   <aside class="sidebar">
@@ -18,15 +18,18 @@
       <button class="nav active" data-page="overview"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg><span data-i18n="nav.overview">Overview</span></button>
       <button class="nav" data-page="docker"><svg viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 7v10l9 5 9-5V7M12 12v10"/></svg><span data-i18n="nav.containers">Containers</span></button>
       <button class="nav" data-page="storage"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v7c0 1.7 4 3 9 3s9-1.3 9-3V5M3 12v7c0 1.7 4 3 9 3s9-1.3 9-3v-7"/></svg><span data-i18n="nav.storage">Storage</span></button>
-      <button class="nav" data-page="shares"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3V7Z"/><path d="M3 7V5h6l2 2"/></svg><span data-i18n="nav.shares">Shares</span></button>
+      <button class="nav" data-page="shares"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3V7Z"/><path d="M3 7V5h6l2 2"/></svg><span data-i18n="nav.shares">Data browser</span></button>
       <button class="nav" data-page="processes"><svg viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg><span data-i18n="nav.processes">Processes</span></button>
       <button class="nav" data-page="logs"><svg viewBox="0 0 24 24"><path d="M5 3h14v18H5zM8 8h8M8 12h8M8 16h5"/></svg><span data-i18n="nav.logs">System logs</span></button>
       <button class="nav" data-page="cli"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9l3 3-3 3M13 15h4"/></svg><span data-i18n="nav.cli">CLI</span></button>
       <button class="nav" data-page="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg><span data-i18n="nav.settings">Settings</span></button>
     </nav>
     <div class="side-foot">
-      <span class="pulse"></span> <span data-i18n="status.connected">Live connected</span>
-      <small id="version">Version – · latest</small>
+      <div class="sidebar-live"><span class="pulse"></span><span id="live-status">LIVE · 500 ms</span></div>
+      <div class="sidebar-version">
+        <span class="version-check" id="version-check"><i>✓</i><span data-i18n="version.latest">Latest version</span></span>
+        <small id="version">v– · latest</small>
+      </div>
     </div>
   </aside>
 
@@ -44,23 +47,6 @@
         </div>
       </div>
       <div class="header-actions">
-        <span class="live-status"><i></i><span id="live-status">LIVE · 500 ms</span></span>
-        <label class="layout-toggle" title="Dashboard-Karten verschieben">
-          <input id="layout-edit" type="checkbox">
-          <span class="toggle-track"><i></i></span>
-          <b data-i18n="layout.label">Layout</b>
-        </label>
-        <span class="version-badge" id="version-badge">v– · latest</span>
-        <select id="language-select" class="language-select" aria-label="Language">
-          <option value="en">EN · English</option>
-          <option value="de">DE · Deutsch</option>
-          <option value="fr">FR · Français</option>
-          <option value="es">ES · Español</option>
-          <option value="it">IT · Italiano</option>
-          <option value="pt">PT · Português</option>
-          <option value="nl">NL · Nederlands</option>
-          <option value="pl">PL · Polski</option>
-        </select>
         <span class="updated" id="updated">Connecting…</span>
         <button class="icon-button" id="refresh" title="Jetzt aktualisieren">↻</button>
       </div>
@@ -75,8 +61,13 @@
         </div>
         <div class="hero-meta">
           <div><small data-i18n="overview.uptime">UPTIME</small><strong id="uptime">–</strong></div>
-          <div><small data-i18n="overview.load">LOAD</small><strong id="load">–</strong></div>
+          <div class="host-updates"><small data-i18n="overview.updates">SYSTEM UPDATES</small><strong id="host-updates">Checking…</strong></div>
         </div>
+        <label class="layout-toggle hero-layout" title="Dashboard-Karten verschieben">
+          <input id="layout-edit" type="checkbox">
+          <span class="toggle-track"><i></i></span>
+          <b data-i18n="layout.label">Layout</b>
+        </label>
       </div>
 
       <div class="metrics" data-overview-section="metrics">
@@ -155,12 +146,12 @@
 
     <section class="page" id="page-shares">
       <div class="section-intro">
-        <div><h2 data-i18n="nav.shares">Shares</h2><p data-i18n="section.shares">Browse detected SMB, NFS and Linux data directories.</p></div>
-        <span class="read-only-badge" data-i18n="common.readOnly">READ ONLY</span>
+        <div><h2 data-i18n="nav.shares">Data browser</h2><p data-i18n="section.shares">Browse and manage files across detected host data directories.</p></div>
+        <span class="write-badge" data-i18n="browser.writeAccess">WRITE ACCESS</span>
       </div>
       <div class="shares-layout">
         <aside class="panel share-list-panel">
-          <div class="panel-head"><div><span class="panel-icon">▱</span><h3 data-i18n="nav.shares">Shares</h3></div></div>
+          <div class="panel-head"><div><span class="panel-icon">▱</span><h3 data-i18n="browser.locations">Locations</h3></div></div>
           <div id="share-list" class="share-list loading">Suche Freigaben…</div>
         </aside>
         <article class="panel file-browser">
@@ -168,6 +159,8 @@
             <button class="action" id="share-up" disabled>← <span data-i18n="shares.back">Back</span></button>
             <div id="share-breadcrumbs" class="breadcrumbs"><span data-i18n="shares.select">Select a share</span></div>
             <span id="share-count" class="file-count">–</span>
+            <button class="action" id="new-folder" disabled>＋ <span data-i18n="browser.newFolder">Folder</span></button>
+            <button class="action" id="new-file" disabled>＋ <span data-i18n="browser.newFile">Text file</span></button>
           </div>
           <div id="file-list" class="file-list">
             <div class="empty-state" data-i18n="shares.select">Select a share</div>
@@ -206,7 +199,7 @@
             </div>
           </div>
           <div class="ssh-fields">
-            <label><span data-i18n="cli.target">SSH target</span><input id="ssh-host" value="host.docker.internal:22" disabled></label>
+            <label><span data-i18n="cli.target">SSH target</span><input id="ssh-host" value="Server-IP:22" disabled></label>
             <label><span data-i18n="cli.username">SSH username</span><input id="ssh-username" required autocomplete="username" placeholder="e.g. ubuntu"></label>
             <label><span data-i18n="cli.password">SSH password</span><input id="ssh-password" required type="password" autocomplete="current-password"></label>
             <button type="submit" data-i18n="cli.connect">Start SSH session</button>
@@ -240,14 +233,55 @@
           <dl><div><dt>HttpOnly cookie</dt><dd>ACTIVE</dd></div><div><dt>CSRF protection</dt><dd>ACTIVE</dd></div><div><dt>Login rate limit</dt><dd>ACTIVE</dd></div></dl>
           <button id="logout" class="settings-danger" data-i18n="settings.logout">Sign out</button>
         </article>
+        <article class="panel preferences-card">
+          <span class="preferences-icon">文</span>
+          <div><h3 data-i18n="settings.language">Language</h3><p data-i18n="settings.languageDescription">Choose the dashboard display language.</p></div>
+          <select id="language-select" class="settings-language" aria-label="Language">
+            <option value="en">EN · English</option>
+            <option value="de">DE · Deutsch</option>
+            <option value="fr">FR · Français</option>
+            <option value="es">ES · Español</option>
+            <option value="it">IT · Italiano</option>
+            <option value="pt">PT · Português</option>
+            <option value="nl">NL · Nederlands</option>
+            <option value="pl">PL · Polski</option>
+          </select>
+        </article>
       </div>
     </section>
   </main>
 
+  <dialog id="file-dialog" class="app-dialog">
+    <form id="file-dialog-form">
+      <div class="dialog-head"><div><small id="file-dialog-kicker">TEXT EDITOR</small><h3 id="file-dialog-title">New text file</h3></div><button type="button" class="dialog-close" data-close-dialog="file-dialog">×</button></div>
+      <label id="file-name-field"><span data-i18n="browser.fileName">File name</span><input id="file-name" maxlength="255" placeholder="compose.yaml"></label>
+      <textarea id="file-content" spellcheck="false" placeholder="# YAML, configuration or notes"></textarea>
+      <small id="file-dialog-error" role="alert"></small>
+      <div class="dialog-actions"><button type="button" class="action" data-close-dialog="file-dialog" data-i18n="common.cancel">Cancel</button><button type="submit" class="dialog-primary" data-i18n="common.save">Save</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="folder-dialog" class="app-dialog small-dialog">
+    <form id="folder-dialog-form">
+      <div class="dialog-head"><div><small>DATA BROWSER</small><h3 data-i18n="browser.newFolderTitle">Create folder</h3></div><button type="button" class="dialog-close" data-close-dialog="folder-dialog">×</button></div>
+      <label><span data-i18n="browser.folderName">Folder name</span><input id="folder-name" maxlength="255" required></label>
+      <small id="folder-dialog-error" role="alert"></small>
+      <div class="dialog-actions"><button type="button" class="action" data-close-dialog="folder-dialog" data-i18n="common.cancel">Cancel</button><button type="submit" class="dialog-primary" data-i18n="common.create">Create</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="delete-dialog" class="app-dialog small-dialog danger-dialog">
+    <form id="delete-dialog-form">
+      <div class="dialog-head"><div><small data-i18n="browser.destructive">DESTRUCTIVE ACTION</small><h3 data-i18n="browser.confirmDelete">Delete permanently?</h3></div><button type="button" class="dialog-close" data-close-dialog="delete-dialog">×</button></div>
+      <p><span data-i18n="browser.deleteWarning">This cannot be undone. The selected item and all contents will be deleted:</span> <strong id="delete-name"></strong></p>
+      <div class="dialog-actions"><button type="button" class="action" data-close-dialog="delete-dialog" data-i18n="common.cancel">Cancel</button><button type="submit" class="dialog-danger" data-i18n="common.delete">Delete permanently</button></div>
+    </form>
+  </dialog>
+
   <div id="toast" role="status"></div>
-  <script src="/i18n.js?v=1.5.0"></script>
-  <script src="/vendor/xterm.js?v=1.5.0"></script>
-  <script src="/vendor/addon-fit.js?v=1.5.0"></script>
-  <script src="/app.js?v=1.5.0"></script>
+  <script src="/i18n.js?v=1.6.0"></script>
+  <script src="/vendor/xterm.js?v=1.6.0"></script>
+  <script src="/vendor/addon-fit.js?v=1.6.0"></script>
+  <script src="/app.js?v=1.6.0"></script>
 </body>
 </html>

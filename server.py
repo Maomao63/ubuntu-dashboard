@@ -11,11 +11,13 @@ import re
 import secrets
 import select
 import signal
+import shutil
 import socket
 import struct
 import subprocess
 import termios
 import time
+import urllib.request
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -24,14 +26,15 @@ from urllib.parse import parse_qs, unquote, urlparse
 ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
-VERSION = os.getenv("APP_VERSION", "1.5.0")
+# Deliberately image-owned: old Compose files must not be able to override the UI version.
+VERSION = "1.6.0"
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 ACCOUNT_FILE = Path(os.getenv("ACCOUNT_FILE", "/data/account.json"))
 ALLOW_ACTIONS = os.getenv("ALLOW_DOCKER_ACTIONS", "true").lower() == "true"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 SESSION_TTL = int(os.getenv("SESSION_TTL", "43200"))
-SSH_HOST = os.getenv("SSH_HOST", "host.docker.internal")
+SSH_HOST = os.getenv("SSH_HOST", "auto")
 SSH_PORT = int(os.getenv("SSH_PORT", "22"))
 STARTED = time.time()
 _sample = {"at": 0, "cpu": None, "net": None}
@@ -137,6 +140,85 @@ def verify_account(username, password):
 
 
 _account = load_account()
+
+
+def version_tuple(value):
+    numbers = re.findall(r"\d+", str(value))[:3]
+    return tuple(int(number) for number in numbers) + (0,) * (3 - len(numbers))
+
+
+def github_version_info():
+    request = urllib.request.Request(
+        "https://raw.githubusercontent.com/Maomao63/ubuntu-dashboard/main/Dockerfile",
+        headers={"User-Agent": f"ubuntu-dashboard/{VERSION}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=4) as response:
+            source = response.read(65536).decode(errors="replace")
+        match = re.search(r"ARG APP_VERSION=([0-9][0-9.]*)", source)
+        latest = match.group(1) if match else VERSION
+        return {
+            "current": VERSION,
+            "latest": latest,
+            "updateAvailable": version_tuple(latest) > version_tuple(VERSION),
+            "checked": True,
+        }
+    except Exception as exc:
+        return {
+            "current": VERSION,
+            "latest": None,
+            "updateAvailable": False,
+            "checked": False,
+            "error": str(exc),
+        }
+
+
+def host_package_updates():
+    distro = os_release_info().get("ID", "").lower()
+    dnf_binary = "/usr/bin/dnf" if host_path("/usr/bin/dnf").exists() else "/usr/bin/dnf5"
+    commands = {
+        "ubuntu": ["/usr/bin/apt", "list", "--upgradable"],
+        "debian": ["/usr/bin/apt", "list", "--upgradable"],
+        "fedora": [dnf_binary, "-q", "check-update", "--cacheonly"],
+        "rocky": [dnf_binary, "-q", "check-update", "--cacheonly"],
+        "rhel": [dnf_binary, "-q", "check-update", "--cacheonly"],
+        "arch": ["/usr/bin/pacman", "-Qu"],
+        "manjaro": ["/usr/bin/pacman", "-Qu"],
+        "opensuse": ["/usr/bin/zypper", "--non-interactive", "list-updates"],
+    }
+    command = commands.get(distro)
+    if not command or not host_path(command[0]).exists():
+        return {"available": None, "count": None, "distro": distro}
+    try:
+        result = subprocess.run(
+            ["chroot", str(HOST_ROOT), *command],
+            capture_output=True, text=True, timeout=25,
+            env={**os.environ, "LC_ALL": "C", "LANG": "C"},
+        )
+        lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if distro in ("ubuntu", "debian"):
+            updates = [line for line in lines if "/" in line and not line.lower().startswith("listing")]
+        elif distro in ("fedora", "rocky", "rhel"):
+            updates = [line for line in lines if len(line.split()) >= 3 and not line.startswith(("Last metadata", "Obsoleting"))]
+        elif distro in ("arch", "manjaro"):
+            updates = lines
+        else:
+            updates = [line for line in lines if "|" in line and not line.startswith(("-", "Repository", "S |"))]
+        return {"available": bool(updates), "count": len(updates), "distro": distro}
+    except Exception as exc:
+        return {"available": None, "count": None, "distro": distro, "error": str(exc)}
+
+
+def request_host(handler):
+    raw = handler.headers.get("Host", "")
+    try:
+        return urlparse(f"//{raw}").hostname or raw.split(":")[0]
+    except ValueError:
+        return raw.split(":")[0]
+
+
+def ssh_target(handler):
+    return request_host(handler) if SSH_HOST.lower() == "auto" else SSH_HOST
 
 
 def recv_exact(sock, length):
@@ -693,6 +775,48 @@ def shares_info(share_index=None, relative=""):
     }
 
 
+def browser_target(share_index, relative="", require_exists=True):
+    roots = share_roots()
+    try:
+        root = roots[int(share_index)]["actual"].resolve()
+    except (ValueError, IndexError, TypeError):
+        raise ValueError("Unknown data root")
+    relative = unquote(str(relative or "")).strip("/")
+    if "\x00" in relative:
+        raise ValueError("Invalid path")
+    candidate = root / relative
+    if candidate.is_symlink():
+        raise ValueError("Symbolic links cannot be modified")
+    check = candidate.resolve() if candidate.exists() else candidate.parent.resolve() / candidate.name
+    if check != root and root not in check.parents:
+        raise ValueError("Path outside the selected data root")
+    if require_exists and not candidate.exists():
+        raise ValueError("File or folder not found")
+    return root, candidate
+
+
+def safe_file_name(value):
+    name = str(value or "").strip()
+    if not name or name in (".", "..") or "/" in name or "\\" in name or len(name) > 255:
+        raise ValueError("Invalid file name")
+    if any(ord(character) < 32 for character in name):
+        raise ValueError("Invalid file name")
+    return name
+
+
+def text_file_info(share_index, relative):
+    _, target = browser_target(share_index, relative)
+    if not target.is_file():
+        raise ValueError("Not a text file")
+    if target.stat().st_size > 2 * 1024 * 1024:
+        raise ValueError("Files larger than 2 MB cannot be edited here")
+    try:
+        content = target.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        raise ValueError("This is not a UTF-8 text file")
+    return {"path": str(relative).strip("/"), "name": target.name, "content": content}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = f"UbuntuDashboard/{VERSION}"
 
@@ -758,7 +882,7 @@ class Handler(BaseHTTPRequestHandler):
                 "username": session.get("username") if session else None,
                 "csrf": session.get("csrf", "") if session else "",
                 "authRequired": account_configured(),
-                "sshHost": SSH_HOST,
+                "sshHost": ssh_target(self),
                 "sshPort": SSH_PORT,
             }, 200 if session else 401)
             return
@@ -788,6 +912,10 @@ class Handler(BaseHTTPRequestHandler):
                 "docker": cached("docker", 1.5, docker_info),
                 "storage": cached("storage", 8, storage_info),
             })
+        elif path == "/api/version":
+            self.send_json(cached("github-version", 900, github_version_info))
+        elif path == "/api/host-updates":
+            self.send_json(cached("host-updates", 1800, host_package_updates))
         elif path == "/api/account":
             self.send_json({
                 "username": session.get("username", "local"),
@@ -797,12 +925,21 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"processes": process_info()})
         elif path == "/api/logs":
             self.send_json(log_info())
-        elif path == "/api/shares":
+        elif path in ("/api/shares", "/api/files"):
             query = parse_qs(urlparse(self.path).query)
             share = query.get("share", [None])[0]
             relative = query.get("path", [""])[0]
             try:
                 self.send_json(shares_info(share, relative))
+            except ValueError as exc:
+                self.send_json({"error": str(exc)}, 400)
+        elif path == "/api/file":
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                self.send_json(text_file_info(
+                    query.get("share", [None])[0],
+                    query.get("path", [""])[0],
+                ))
             except ValueError as exc:
                 self.send_json({"error": str(exc)}, 400)
         elif path.startswith("/api/"):
@@ -832,6 +969,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/account":
             self.handle_account_update(session)
+            return
+        if path.startswith("/api/files/"):
+            self.handle_file_action(path.removeprefix("/api/files/"))
             return
         if path == "/api/cli":
             try:
@@ -894,6 +1034,52 @@ class Handler(BaseHTTPRequestHandler):
             "username": username,
             "csrf": session["csrf"],
         }, headers={"Set-Cookie": cookie})
+
+    def handle_file_action(self, action):
+        try:
+            length = min(int(self.headers.get("Content-Length", "0")), 2 * 1024 * 1024 + 8192)
+            payload = json.loads(self.rfile.read(length) or b"{}")
+            share = payload.get("share")
+            relative = str(payload.get("path", "")).strip("/")
+            if action in ("mkdir", "create"):
+                _, parent = browser_target(share, relative)
+                if not parent.is_dir():
+                    raise ValueError("Parent folder not found")
+                name = safe_file_name(payload.get("name"))
+                target = parent / name
+                browser_target(share, f"{relative}/{name}".strip("/"), require_exists=False)
+                if target.exists():
+                    raise ValueError("A file or folder with this name already exists")
+                if action == "mkdir":
+                    target.mkdir(mode=0o755)
+                else:
+                    target.write_text(str(payload.get("content", "")), encoding="utf-8")
+                parent_stat = parent.stat()
+                try:
+                    os.chown(target, parent_stat.st_uid, parent_stat.st_gid)
+                except PermissionError:
+                    pass
+            elif action == "save":
+                _, target = browser_target(share, relative)
+                if not target.is_file() or target.stat().st_size > 2 * 1024 * 1024:
+                    raise ValueError("This file cannot be edited")
+                content = str(payload.get("content", ""))
+                if len(content.encode()) > 2 * 1024 * 1024:
+                    raise ValueError("Content exceeds the 2 MB editor limit")
+                target.write_text(content, encoding="utf-8")
+            elif action == "delete":
+                root, target = browser_target(share, relative)
+                if target == root:
+                    raise ValueError("A data root cannot be deleted")
+                if target.is_dir():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink()
+            else:
+                raise ValueError("Unknown file action")
+            self.send_json({"ok": True, "action": action})
+        except (ValueError, OSError, json.JSONDecodeError) as exc:
+            self.send_json({"error": str(exc)}, 400)
 
     def handle_account_update(self, session):
         global _account
@@ -979,6 +1165,7 @@ class Handler(BaseHTTPRequestHandler):
             os.close(password_write)
             environment = os.environ.copy()
             environment["TERM"] = "xterm-256color"
+            target_host = ssh_target(self)
             process = subprocess.Popen([
                 "sshpass", "-d", str(password_read),
                 "ssh", "-tt",
@@ -990,13 +1177,13 @@ class Handler(BaseHTTPRequestHandler):
                 "-o", "ConnectTimeout=10",
                 "-o", "ServerAliveInterval=30",
                 "-o", "ServerAliveCountMax=3",
-                f"{username}@{SSH_HOST}",
+                f"{username}@{target_host}",
             ], stdin=slave_fd, stdout=slave_fd, stderr=slave_fd, close_fds=True,
                pass_fds=(password_read,), env=environment, start_new_session=True)
             os.close(password_read)
             os.close(slave_fd)
             websocket_send(self.connection, json.dumps({
-                "type": "connected", "host": SSH_HOST, "port": SSH_PORT, "username": username
+                "type": "connected", "host": target_host, "port": SSH_PORT, "username": username
             }))
             started = time.time()
             while process.poll() is None and time.time() - started < 14400:

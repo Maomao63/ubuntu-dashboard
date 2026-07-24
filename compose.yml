@@ -4,7 +4,7 @@ services:
     build:
       context: .
       args:
-        APP_VERSION: "1.5.0"
+        APP_VERSION: "1.6.0"
     container_name: ubuntu-dashboard
     restart: unless-stopped
     ports:
@@ -14,14 +14,12 @@ services:
       DASHBOARD_PASSWORD: "${DASHBOARD_PASSWORD:-}"
       ALLOW_DOCKER_ACTIONS: "${ALLOW_DOCKER_ACTIONS:-true}"
       SHARE_ROOTS: "${SHARE_ROOTS:-}"
-      SSH_HOST: "${SSH_HOST:-host.docker.internal}"
+      SSH_HOST: "${SSH_HOST:-auto}"
       SSH_PORT: "${SSH_PORT:-22}"
       COOKIE_SECURE: "${COOKIE_SECURE:-false}"
       SESSION_TTL: "${SESSION_TTL:-43200}"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
-      - /:/host:ro
+      - /:/host:rw
       - /var/run/docker.sock:/var/run/docker.sock
       - ubuntu-dashboard-data:/data
     security_opt:

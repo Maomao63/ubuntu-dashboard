@@ -6,7 +6,7 @@ RUN npm install --prefix /terminal-assets \
 
 FROM python:3.13-alpine
 
-ARG APP_VERSION=1.5.0
+ARG APP_VERSION=1.6.0
 ENV APP_VERSION=${APP_VERSION} \
     PYTHONUNBUFFERED=1 \
     PORT=8080 \
@@ -21,7 +21,7 @@ COPY --from=terminal-assets /terminal-assets/node_modules/@xterm/addon-fit/lib/a
 COPY --from=terminal-assets /terminal-assets/node_modules/@xterm/xterm/LICENSE /app/web/vendor/xterm-LICENSE
 COPY --from=terminal-assets /terminal-assets/node_modules/@xterm/addon-fit/LICENSE /app/web/vendor/addon-fit-LICENSE
 
-RUN apk add --no-cache openssh-client sshpass \
+RUN apk add --no-cache ca-certificates openssh-client sshpass \
     && addgroup -S dashboard \
     && adduser -S -G dashboard dashboard
 
