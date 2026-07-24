@@ -21,8 +21,8 @@
       <button class="nav" data-page="logs"><span>⌁</span> Systemlogs</button>
     </nav>
     <div class="side-foot">
-      <span class="pulse"></span> Verbunden
-      <small id="version">Version –</small>
+      <span class="pulse"></span> Live verbunden
+      <small id="version">Version – · latest</small>
     </div>
   </aside>
 
@@ -34,7 +34,15 @@
         <h1 id="page-title">Übersicht</h1>
       </div>
       <div class="header-actions">
-        <span class="updated" id="updated">Wird geladen…</span>
+        <span class="live-status"><i></i><span id="live-status">LIVE · 2 s</span></span>
+        <div class="scale-control" title="Oberflächengröße anpassen">
+          <button id="scale-down" aria-label="Oberfläche verkleinern">−</button>
+          <input id="ui-scale" type="range" min="90" max="140" step="5" value="110" aria-label="Oberflächengröße">
+          <button id="scale-up" aria-label="Oberfläche vergrößern">+</button>
+          <output id="scale-value">110%</output>
+        </div>
+        <span class="version-badge" id="version-badge">v– · latest</span>
+        <span class="updated" id="updated">Verbinde…</span>
         <button class="icon-button" id="refresh" title="Jetzt aktualisieren">↻</button>
       </div>
     </header>

@@ -2,6 +2,26 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 let overview = null;
 let busy = false;
+let liveTimer = null;
+let failedUpdates = 0;
+
+const scaleInput = $("#ui-scale");
+const scaleOutput = $("#scale-value");
+const storedScale = Number(localStorage.getItem("ubuntu-dashboard-scale"));
+const automaticScale = window.innerWidth >= 2200 ? 125 : window.innerWidth >= 1600 ? 115 : 100;
+
+function setScale(value) {
+  value = Math.max(90, Math.min(140, Number(value)));
+  document.documentElement.style.setProperty("--ui-scale", value / 100);
+  scaleInput.value = value;
+  scaleOutput.value = `${value}%`;
+  localStorage.setItem("ubuntu-dashboard-scale", value);
+}
+
+setScale(storedScale || automaticScale);
+scaleInput.addEventListener("input", event => setScale(event.target.value));
+$("#scale-down").addEventListener("click", () => setScale(Number(scaleInput.value) - 5));
+$("#scale-up").addEventListener("click", () => setScale(Number(scaleInput.value) + 5));
 
 const escapeHtml = (value = "") => String(value).replace(/[&<>"']/g, char => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
@@ -107,7 +127,8 @@ function renderContainers(docker) {
 function render(data) {
   overview = data;
   const system = data.system, docker = data.docker;
-  $("#version").textContent = `Version ${data.version}`;
+  $("#version").textContent = `Version ${data.version} · latest`;
+  $("#version-badge").textContent = `v${data.version} · latest`;
   $("#hostname").textContent = system.hostname;
   $("#os").textContent = system.os;
   $("#kernel").textContent = system.kernel;
@@ -144,25 +165,37 @@ function render(data) {
       <div class="storage-stats"><span>${bytes(item.used)} belegt</span><span>${bytes(item.available)} frei · ${bytes(item.total)} gesamt</span></div>
     </article>`).join("") : `<div class="error-box">Keine Laufwerke erkannt.</div>`;
   renderContainers(docker);
-  $("#updated").textContent = `Aktualisiert ${new Date().toLocaleTimeString("de-DE", {hour: "2-digit", minute: "2-digit", second: "2-digit"})}`;
+  $("#updated").textContent = `Stand ${new Date().toLocaleTimeString("de-DE", {hour: "2-digit", minute: "2-digit", second: "2-digit"})}`;
 }
 
 async function loadOverview(manual = false) {
-  if (busy) return;
+  if (busy) return scheduleLiveUpdate(500);
   busy = true;
   $("#refresh").classList.add("spinning");
   try {
-    const response = await fetch("/api/overview");
+    const response = await fetch("/api/overview", {cache: "no-store"});
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     render(await response.json());
+    failedUpdates = 0;
+    $(".live-status").classList.remove("offline");
+    $("#live-status").textContent = "LIVE · 2 s";
     if (manual) toast("Daten wurden aktualisiert");
   } catch (error) {
+    failedUpdates++;
     toast(`Verbindung fehlgeschlagen: ${error.message}`, true);
     $("#updated").textContent = "Keine Verbindung";
+    $(".live-status").classList.add("offline");
+    $("#live-status").textContent = "VERBINDUNG GETRENNT";
   } finally {
     busy = false;
     $("#refresh").classList.remove("spinning");
+    scheduleLiveUpdate(document.hidden ? 10000 : failedUpdates ? 5000 : 2000);
   }
+}
+
+function scheduleLiveUpdate(delay = 2000) {
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(() => loadOverview(), delay);
 }
 
 async function dockerAction(button) {
@@ -206,5 +239,9 @@ async function loadLogs() {
   } catch (error) { $("#log-output").textContent = error.message; }
 }
 
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) loadOverview();
+  else scheduleLiveUpdate(10000);
+});
+window.addEventListener("online", () => loadOverview());
 loadOverview();
-setInterval(loadOverview, 5000);

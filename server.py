@@ -15,7 +15,7 @@ from urllib.parse import unquote, urlparse
 ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
-VERSION = os.getenv("APP_VERSION", "1.0.0")
+VERSION = os.getenv("APP_VERSION", "1.1.0")
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 ALLOW_ACTIONS = os.getenv("ALLOW_DOCKER_ACTIONS", "true").lower() == "true"

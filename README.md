@@ -67,13 +67,13 @@ Monitoring.
 
 ## Version veröffentlichen
 
-Für eine neue Version beide Vorkommen von `1.0.0` in `compose.yml` ändern und
+Für eine neue Version beide Vorkommen von `1.1.0` in `compose.yml` ändern und
 anschließend bauen:
 
 ```bash
 docker compose build --pull
-docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.0.0
+docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.1.0
 docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:latest
-docker push ghcr.io/dein-name/ubuntu-dashboard:1.0.0
+docker push ghcr.io/dein-name/ubuntu-dashboard:1.1.0
 docker push ghcr.io/dein-name/ubuntu-dashboard:latest
 ```
