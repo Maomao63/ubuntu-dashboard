@@ -16,6 +16,9 @@ Docker-Container und verwendet ausschließlich die Python-Standardbibliothek.
 - frei sortierbare Dashboard-Karten mit gespeichertem Layout
 - automatische Distributionserkennung und passendes Branding
 - Live-Werte im 500-ms-Takt
+- englisches Basis-UI mit Deutsch, Französisch, Spanisch, Italienisch,
+  Portugiesisch, Niederländisch und Polnisch
+- sichere Diagnose-CLI ohne privilegierten Host-Shell-Zugriff
 - responsives Web-UI für Desktop, Tablet und Smartphone
 - optionale HTTP-Basic-Anmeldung
 - Read-only-Dateisystem und Healthcheck im Container
@@ -69,20 +72,26 @@ es ausschließlich über die drei freigegebenen Docker-Endpunkte. Mit
 `ALLOW_DOCKER_ACTIONS=false` wird die Oberfläche effektiv zum Read-only
 Monitoring.
 
-Freigaben werden aus `/etc/samba/smb.conf` und typischen Datenpfaden erkannt.
+Freigaben werden automatisch aus Samba-Konfigurationen, NFS-Exports, echten
+Datenträger-Mounts und distributionsüblichen Pfaden erkannt. Dabei werden unter
+anderem Ubuntu, Debian, Fedora/Rocky, Arch/Manjaro und openSUSE berücksichtigt.
 Zusätzliche Ordner können mit `SHARE_ROOTS=/data/media,/data/backups` angegeben
 werden. Der Dateimanager zeigt Namen, Ordnerstruktur, Größen und Änderungszeiten,
 kann durch den Read-only-Host-Mount aber keine Dateien verändern.
 
+Die integrierte CLI ist absichtlich eine Diagnosekonsole mit erlaubten,
+lesenden Befehlen. Sie stellt keinen beliebigen Root-Shellzugriff bereit und
+benötigt deshalb weder `privileged: true` noch Zugriff auf den Host-PID-Namespace.
+
 ## Version veröffentlichen
 
-Für eine neue Version beide Vorkommen von `1.2.0` in `compose.yml` ändern und
+Für eine neue Version beide Vorkommen von `1.3.0` in `compose.yml` ändern und
 anschließend bauen:
 
 ```bash
 docker compose build --pull
-docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.2.0
+docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.3.0
 docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:latest
-docker push ghcr.io/dein-name/ubuntu-dashboard:1.2.0
+docker push ghcr.io/dein-name/ubuntu-dashboard:1.3.0
 docker push ghcr.io/dein-name/ubuntu-dashboard:latest
 ```

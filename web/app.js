@@ -7,6 +7,42 @@ let failedUpdates = 0;
 const LIVE_INTERVAL_MS = 500;
 let selectedShare = null;
 let selectedPath = "";
+let currentPage = "overview";
+let currentLanguage = localStorage.getItem("ubuntu-dashboard-language") || "en";
+
+function t(key) {
+  return window.I18N?.[currentLanguage]?.[key] ?? window.I18N?.en?.[key] ?? key;
+}
+
+function applyLanguage(language) {
+  currentLanguage = window.I18N?.[language] ? language : "en";
+  localStorage.setItem("ubuntu-dashboard-language", currentLanguage);
+  document.documentElement.lang = currentLanguage;
+  $("#language-select").value = currentLanguage;
+  $$("[data-i18n]").forEach(element => element.textContent = t(element.dataset.i18n));
+  updatePageHeading();
+  updateClock();
+  if (overview) render(overview);
+  if (currentPage === "shares") loadShares(selectedShare, selectedPath);
+}
+
+function updatePageHeading() {
+  $("#page-kicker").textContent = t(`kicker.${currentPage}`);
+  $("#page-title").textContent = t(`page.${currentPage}`);
+}
+
+function updateClock() {
+  const now = new Date();
+  $("#clock-time").textContent = now.toLocaleTimeString(currentLanguage, {
+    hour: "2-digit", minute: "2-digit", second: "2-digit"
+  });
+  $("#clock-date").textContent = now.toLocaleDateString(currentLanguage, {
+    weekday: "short", day: "2-digit", month: "short"
+  });
+}
+
+$("#language-select").addEventListener("change", event => applyLanguage(event.target.value));
+setInterval(updateClock, 1000);
 
 const escapeHtml = (value = "") => String(value).replace(/[&<>"']/g, char => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
@@ -24,7 +60,11 @@ const duration = (seconds = 0) => {
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor(seconds % 86400 / 3600);
   const mins = Math.floor(seconds % 3600 / 60);
-  return days ? `${days} T ${hours} Std` : hours ? `${hours} Std ${mins} Min` : `${mins} Min`;
+  return days
+    ? `${days} ${t("unit.days")} ${hours} ${t("unit.hours")}`
+    : hours
+      ? `${hours} ${t("unit.hours")} ${mins} ${t("unit.minutes")}`
+      : `${mins} ${t("unit.minutes")}`;
 };
 
 const toast = (message, error = false) => {
@@ -36,22 +76,15 @@ const toast = (message, error = false) => {
 };
 
 function setPage(name) {
+  currentPage = name;
   $$(".page").forEach(page => page.classList.toggle("active", page.id === `page-${name}`));
   $$(".nav").forEach(nav => nav.classList.toggle("active", nav.dataset.page === name));
-  const titles = {
-    overview: ["SYSTEMZENTRALE", "Übersicht"],
-    docker: ["WORKLOADS", "Docker"],
-    storage: ["DATEISYSTEME", "Speicher"],
-    shares: ["DATEIMANAGER", "Freigaben"],
-    processes: ["HOST", "Prozesse"],
-    logs: ["EREIGNISSE", "Systemlogs"],
-  };
-  $("#page-kicker").textContent = titles[name][0];
-  $("#page-title").textContent = titles[name][1];
+  updatePageHeading();
   document.body.classList.remove("menu-open");
   if (name === "processes") loadProcesses();
   if (name === "logs") loadLogs();
   if (name === "shares") loadShares(selectedShare, selectedPath);
+  if (name === "cli") $("#terminal-input").focus();
 }
 
 $$(".nav").forEach(button => button.addEventListener("click", () => setPage(button.dataset.page)));
@@ -60,72 +93,80 @@ $(".mobile-menu").addEventListener("click", () => document.body.classList.toggle
 $("#refresh").addEventListener("click", () => loadOverview(true));
 
 function setupWidgetLayout() {
-  const container = $(".metrics");
   const toggle = $("#layout-edit");
-  const cards = () => [...container.querySelectorAll(".metric")];
-  let saved = [];
-  try { saved = JSON.parse(localStorage.getItem("ubuntu-dashboard-widgets") || "[]"); }
-  catch { localStorage.removeItem("ubuntu-dashboard-widgets"); }
-  saved.forEach(id => {
-    const card = container.querySelector(`[data-widget="${CSS.escape(id)}"]`);
-    if (card) container.append(card);
-  });
+  const groups = [];
 
-  const save = () => localStorage.setItem(
-    "ubuntu-dashboard-widgets",
-    JSON.stringify(cards().map(card => card.dataset.widget))
-  );
-  const setEditing = enabled => {
-    container.classList.toggle("editing", enabled);
-    cards().forEach(card => card.draggable = enabled);
-  };
-  cards().forEach(card => {
-    const controls = document.createElement("span");
-    controls.className = "widget-move";
-    controls.innerHTML = `<button data-move="-1" title="Nach links">←</button><button data-move="1" title="Nach rechts">→</button>`;
-    card.append(controls);
-    controls.addEventListener("click", event => {
-      const button = event.target.closest("[data-move]");
-      if (!button) return;
-      event.stopPropagation();
-      const all = cards(), index = all.indexOf(card);
-      const target = all[index + Number(button.dataset.move)];
-      if (!target) return;
-      if (Number(button.dataset.move) < 0) container.insertBefore(card, target);
-      else container.insertBefore(target, card);
-      save();
+  function createGroup(container, selector, attribute, storageKey, draggable = true, section = false) {
+    const cards = () => [...container.querySelectorAll(`:scope > ${selector}`)];
+    let saved = [];
+    try { saved = JSON.parse(localStorage.getItem(storageKey) || "[]"); }
+    catch { localStorage.removeItem(storageKey); }
+    saved.forEach(id => {
+      const card = cards().find(item => item.dataset[attribute] === id);
+      if (card) container.append(card);
     });
-    card.addEventListener("dragstart", event => {
-      if (!toggle.checked) return event.preventDefault();
-      card.classList.add("dragging");
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", card.dataset.widget);
+    const save = () => localStorage.setItem(storageKey, JSON.stringify(cards().map(card => card.dataset[attribute])));
+    cards().forEach(card => {
+      const controls = document.createElement("span");
+      controls.className = section ? "section-move" : "widget-move";
+      controls.innerHTML = `<button data-move="-1" title="Move left/up">←</button><button data-move="1" title="Move right/down">→</button>`;
+      card.append(controls);
+      controls.addEventListener("click", event => {
+        const button = event.target.closest("[data-move]");
+        if (!button) return;
+        event.stopPropagation();
+        const all = cards(), index = all.indexOf(card);
+        const target = all[index + Number(button.dataset.move)];
+        if (!target) return;
+        if (Number(button.dataset.move) < 0) container.insertBefore(card, target);
+        else container.insertBefore(target, card);
+        save();
+      });
+      if (!draggable) return;
+      card.addEventListener("dragstart", event => {
+        if (!toggle.checked) return event.preventDefault();
+        card.classList.add("dragging");
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", card.dataset[attribute]);
+      });
+      card.addEventListener("dragend", () => {
+        cards().forEach(item => item.classList.remove("dragging", "drag-over"));
+        save();
+      });
+      card.addEventListener("dragover", event => {
+        if (!toggle.checked) return;
+        event.preventDefault();
+        cards().forEach(item => item.classList.remove("drag-over"));
+        card.classList.add("drag-over");
+      });
+      card.addEventListener("drop", event => {
+        event.preventDefault();
+        const id = event.dataTransfer.getData("text/plain");
+        const moving = cards().find(item => item.dataset[attribute] === id);
+        if (!moving || moving === card) return;
+        const rect = card.getBoundingClientRect();
+        const before = event.clientX < rect.left + rect.width / 2;
+        container.insertBefore(moving, before ? card : card.nextSibling);
+        save();
+      });
     });
-    card.addEventListener("dragend", () => {
-      cards().forEach(item => item.classList.remove("dragging", "drag-over"));
-      save();
+    groups.push({
+      container, cards, draggable,
+      setEditing(enabled) {
+        container.classList.toggle("editing", enabled);
+        cards().forEach(card => card.draggable = draggable && enabled);
+      }
     });
-    card.addEventListener("dragover", event => {
-      if (!toggle.checked) return;
-      event.preventDefault();
-      cards().forEach(item => item.classList.remove("drag-over"));
-      card.classList.add("drag-over");
-    });
-    card.addEventListener("drop", event => {
-      event.preventDefault();
-      const moving = container.querySelector(`[data-widget="${CSS.escape(event.dataTransfer.getData("text/plain"))}"]`);
-      if (!moving || moving === card) return;
-      const rect = card.getBoundingClientRect();
-      const before = event.clientX < rect.left + rect.width / 2;
-      container.insertBefore(moving, before ? card : card.nextSibling);
-      save();
-    });
-  });
+  }
+
+  createGroup($("#page-overview"), "[data-overview-section]", "overviewSection", "ubuntu-dashboard-sections", false, true);
+  createGroup($(".metrics"), ".metric", "widget", "ubuntu-dashboard-widgets");
+  createGroup($(".dashboard-grid"), ".panel", "panelWidget", "ubuntu-dashboard-panels");
   toggle.addEventListener("change", () => {
-    setEditing(toggle.checked);
-    toast(toggle.checked ? "Layout entsperrt – Karten verschieben" : "Layout gespeichert");
+    groups.forEach(group => group.setEditing(toggle.checked));
+    toast(toggle.checked ? t("layout.unlocked") : t("layout.saved"));
   });
-  setEditing(false);
+  groups.forEach(group => group.setEditing(false));
 }
 
 setupWidgetLayout();
@@ -134,7 +175,7 @@ $("#distro-logo").addEventListener("error", event => {
 });
 
 function storageRows(items, limit = items.length) {
-  if (!items.length) return `<div class="empty-state">Keine Laufwerke erkannt</div>`;
+  if (!items.length) return `<div class="empty-state">${t("common.noDrives")}</div>`;
   return items.slice(0, limit).map(item => `
     <div class="storage-row">
       <div class="storage-name"><strong>${escapeHtml(item.mount)}</strong><small>${escapeHtml(item.device)} · ${escapeHtml(item.filesystem)}</small></div>
@@ -193,23 +234,24 @@ function render(data) {
   $("#distro-name").textContent = system.distro.name.toUpperCase();
   $("#distro-logo").src = `https://cdn.simpleicons.org/${encodeURIComponent(system.distro.icon)}/${system.distro.color.replace("#", "")}`;
   document.documentElement.style.setProperty("--brand", system.distro.color);
+  $("#terminal-title").textContent = `${system.distro.id}-control@${system.hostname}:~`;
   $("#hostname").textContent = system.hostname;
   $("#os").textContent = system.os;
   $("#kernel").textContent = system.kernel;
   $("#uptime").textContent = duration(system.uptime);
   $("#load").textContent = system.load.join(" · ");
   $("#cpu-value").textContent = `${system.cpu.percent}%`;
-  $("#cpu-sub").textContent = `${system.cpu.cores} Kerne · ${system.cpu.model}`;
+  $("#cpu-sub").textContent = `${system.cpu.cores} ${t("common.cores")} · ${system.cpu.model}`;
   $("#cpu-ring-value").textContent = Math.round(system.cpu.percent);
   $("#cpu-ring").style.setProperty("--value", system.cpu.percent);
   $("#ram-value").textContent = `${system.memory.percent}%`;
-  $("#ram-sub").textContent = `${bytes(system.memory.used)} von ${bytes(system.memory.total)}`;
+  $("#ram-sub").textContent = `${bytes(system.memory.used)} ${t("common.of")} ${bytes(system.memory.total)}`;
   $("#ram-ring-value").textContent = Math.round(system.memory.percent);
   $("#ram-ring").style.setProperty("--value", system.memory.percent);
   $("#network-value").textContent = bytes(system.network.down + system.network.up, true);
   $("#network-sub").textContent = `↓ ${bytes(system.network.down, true)} · ↑ ${bytes(system.network.up, true)}`;
-  $("#docker-value").textContent = docker.available ? `${docker.containersRunning} aktiv` : "Offline";
-  $("#docker-sub").textContent = docker.available ? `${docker.containers.length} Container · Docker ${docker.version}` : docker.error;
+  $("#docker-value").textContent = docker.available ? `${docker.containersRunning} ${t("common.active")}` : "Offline";
+  $("#docker-sub").textContent = docker.available ? `${docker.containers.length} ${t("common.containers")} · Docker ${docker.version}` : docker.error;
   $("#architecture").textContent = system.architecture;
   $("#cores").textContent = system.cpu.cores;
   $("#interfaces").textContent = system.network.interfaces.join(", ") || "–";
@@ -220,16 +262,16 @@ function render(data) {
   $("#storage-preview").innerHTML = storageRows(data.storage, 3);
   $("#temperatures").innerHTML = system.temperatures.length
     ? system.temperatures.map(temp => `<div class="temp-row"><span>${escapeHtml(temp.name)}</span><strong>${temp.value} °C</strong></div>`).join("")
-    : `<span>Keine Sensorwerte verfügbar</span>`;
+    : `<span>${t("common.noSensors")}</span>`;
   $("#temperatures").classList.toggle("empty-state", !system.temperatures.length);
   $("#storage-cards").innerHTML = data.storage.length ? data.storage.map(item => `
     <article class="storage-card">
       <div class="storage-card-head"><div><h3>${escapeHtml(item.mount)}</h3><p>${escapeHtml(item.device)} · ${escapeHtml(item.filesystem)}</p></div><strong>${item.percent}%</strong></div>
       <div class="big-bar"><i style="width:${Math.min(item.percent, 100)}%"></i></div>
       <div class="storage-stats"><span>${bytes(item.used)} belegt</span><span>${bytes(item.available)} frei · ${bytes(item.total)} gesamt</span></div>
-    </article>`).join("") : `<div class="error-box">Keine Laufwerke erkannt.</div>`;
+    </article>`).join("") : `<div class="error-box">${t("common.noDrives")}</div>`;
   renderContainers(docker);
-  $("#updated").textContent = `Stand ${new Date().toLocaleTimeString("de-DE", {hour: "2-digit", minute: "2-digit", second: "2-digit"})}`;
+  $("#updated").textContent = `${t("live.synced")} ${new Date().toLocaleTimeString(currentLanguage, {hour: "2-digit", minute: "2-digit", second: "2-digit"})}`;
 }
 
 async function loadOverview(manual = false) {
@@ -249,7 +291,7 @@ async function loadOverview(manual = false) {
     toast(`Verbindung fehlgeschlagen: ${error.message}`, true);
     $("#updated").textContent = "Keine Verbindung";
     $(".live-status").classList.add("offline");
-    $("#live-status").textContent = "VERBINDUNG GETRENNT";
+    $("#live-status").textContent = t("live.disconnected");
   } finally {
     busy = false;
     $("#refresh").classList.remove("spinning");
@@ -300,8 +342,8 @@ async function loadShares(share = null, path = "") {
     $("#share-list").innerHTML = data.shares.length ? data.shares.map(item => `
       <button class="share-button ${Number(selectedShare) === item.id ? "active" : ""}" data-share="${item.id}">
         <span class="share-folder">▰</span>
-        <span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.protocol)} · ${bytes(item.free)} frei</small></span>
-      </button>`).join("") : `<div class="empty-state">Keine Freigaben erkannt.<br><small>Optional SHARE_ROOTS in der Compose setzen.</small></div>`;
+        <span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.protocol)} · ${bytes(item.free)} ${t("common.free")}</small></span>
+      </button>`).join("") : `<div class="empty-state">${t("shares.none")}<br><small>SHARE_ROOTS</small></div>`;
     $$("[data-share]").forEach(button => button.addEventListener("click", () => loadShares(Number(button.dataset.share), "")));
     renderFiles(data);
   } catch (error) {
@@ -320,7 +362,7 @@ function renderFiles(data) {
     crumbs.push(`<i>/</i><button data-browse-path="${escapeHtml(accumulated)}">${escapeHtml(segment)}</button>`);
   });
   $("#share-breadcrumbs").innerHTML = crumbs.join("");
-  $("#share-count").textContent = `${data.entries.length}${data.truncated ? "+" : ""} Einträge`;
+  $("#share-count").textContent = `${data.entries.length}${data.truncated ? "+" : ""} ${t("common.entries")}`;
   $("#share-up").disabled = !data.relative;
   $("#share-up").onclick = () => {
     const parent = segments.slice(0, -1).join("/");
@@ -336,10 +378,10 @@ function renderFiles(data) {
           ? `<button data-open-path="${escapeHtml(nextPath)}">${escapeHtml(item.name)}</button>`
           : `<span>${escapeHtml(item.name)}</span>`}
       </div>
-      <span class="file-meta">${item.type === "directory" ? "Ordner" : bytes(item.size)}</span>
+      <span class="file-meta">${item.type === "directory" ? t("common.folder") : bytes(item.size)}</span>
       <span class="file-meta modified">${new Date(item.modified * 1000).toLocaleString("de-DE", {dateStyle: "short", timeStyle: "short"})}</span>
     </div>`;
-  }).join("") : `<div class="empty-state">Dieser Ordner ist leer.</div>`;
+  }).join("") : `<div class="empty-state">${t("common.empty")}</div>`;
   $$("[data-open-path]").forEach(button => button.addEventListener("click", () => loadShares(selectedShare, button.dataset.openPath)));
 }
 
@@ -364,9 +406,51 @@ async function loadLogs() {
   } catch (error) { $("#log-output").textContent = error.message; }
 }
 
+function terminalLine(text, type = "") {
+  const line = document.createElement("div");
+  line.className = `terminal-line ${type}`;
+  line.textContent = text;
+  $("#terminal-output").append(line);
+  $("#terminal-output").scrollTop = $("#terminal-output").scrollHeight;
+}
+
+$("#terminal-clear").addEventListener("click", () => {
+  $("#terminal-output").innerHTML = "";
+  $("#terminal-input").focus();
+});
+$("#terminal-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const input = $("#terminal-input");
+  const command = input.value.trim();
+  if (!command) return;
+  input.value = "";
+  terminalLine(command, "command");
+  if (command.toLowerCase() === "clear") {
+    $("#terminal-output").innerHTML = "";
+    return;
+  }
+  input.disabled = true;
+  try {
+    const response = await fetch("/api/cli", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({command})
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Command failed");
+    terminalLine(data.output);
+  } catch (error) {
+    terminalLine(error.message, "error");
+  } finally {
+    input.disabled = false;
+    input.focus();
+  }
+});
+
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) loadOverview();
   else scheduleLiveUpdate(5000);
 });
 window.addEventListener("online", () => loadOverview());
+applyLanguage(currentLanguage);
 loadOverview();

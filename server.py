@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
-VERSION = os.getenv("APP_VERSION", "1.2.0")
+VERSION = os.getenv("APP_VERSION", "1.3.0")
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 ALLOW_ACTIONS = os.getenv("ALLOW_DOCKER_ACTIONS", "true").lower() == "true"
@@ -94,6 +94,15 @@ def memory_info():
     }
 
 
+def os_release_info():
+    values = {}
+    for line in read_text(host_path("/etc/os-release")).splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            values[key] = value.strip().strip('"')
+    return values
+
+
 def temperatures():
     found = []
     base = host_path("/sys/class/thermal")
@@ -135,11 +144,7 @@ def system_info():
     uptime_raw = read_text(host_path("/proc/uptime"), "0").split()
     uptime = int(float(uptime_raw[0])) if uptime_raw else 0
     load = read_text(host_path("/proc/loadavg"), "0 0 0").split()[:3]
-    os_release = {}
-    for line in read_text(host_path("/etc/os-release")).splitlines():
-        if "=" in line:
-            key, value = line.split("=", 1)
-            os_release[key] = value.strip().strip('"')
+    os_release = os_release_info()
     distro_id = os_release.get("ID", "linux").lower()
     distro_icons = {
         "ubuntu": ("ubuntu", "#E95420"),
@@ -367,7 +372,12 @@ def share_roots():
             roots.append({"name": name, "path": normalized, "protocol": protocol, "actual": resolved})
             seen.add(key)
 
-    smb = read_text(host_path("/etc/samba/smb.conf"))
+    smb_files = [host_path("/etc/samba/smb.conf")]
+    try:
+        smb_files.extend(host_path("/etc/samba").glob("**/*.conf"))
+    except OSError:
+        pass
+    smb = "\n".join(read_text(path) for path in dict.fromkeys(smb_files))
     current = None
     sections = {}
     for raw in smb.splitlines():
@@ -383,23 +393,118 @@ def share_roots():
         if name.lower() not in ("global", "homes", "printers", "print$") and options.get("path"):
             add(name, options["path"], "SMB")
 
+    nfs_files = [host_path("/etc/exports")]
+    try:
+        nfs_files.extend(host_path("/etc/exports.d").glob("*.exports"))
+    except OSError:
+        pass
+    for exports_file in nfs_files:
+        for raw in read_text(exports_file).splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            exported = line.split()[0].replace("\\040", " ")
+            if exported.startswith("/"):
+                add(Path(exported).name or "NFS", exported, "NFS")
+
     configured = [item.strip() for item in os.getenv("SHARE_ROOTS", "").split(",") if item.strip()]
     for path in configured:
         add(Path(path).name or path, path, "Konfiguriert")
 
+    mount_lines = read_text(host_path("/proc/mounts")).splitlines()
+    for line in mount_lines:
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        device, mount, filesystem = parts[:3]
+        mount = mount.replace("\\040", " ")
+        if mount != "/" and (
+            filesystem in ("nfs", "nfs4", "cifs")
+            or (device.startswith("/dev/") and mount.startswith(("/mnt/", "/media/", "/srv/", "/data/", "/storage/")))
+        ):
+            add(Path(mount).name, mount, filesystem.upper())
+
     if not roots:
-        for base_path in ("/mnt", "/srv", "/media"):
+        distro_id = os_release_info().get("ID", "linux").lower()
+        distro_paths = {
+            "ubuntu": ("/srv/samba", "/srv/nfs", "/srv/shares", "/mnt", "/media", "/data", "/storage"),
+            "debian": ("/srv/samba", "/srv/nfs", "/srv/shares", "/mnt", "/media", "/data", "/storage"),
+            "fedora": ("/srv/samba", "/srv/nfs", "/var/lib/samba", "/mnt", "/media", "/data", "/storage"),
+            "rocky": ("/srv/samba", "/srv/nfs", "/var/lib/samba", "/mnt", "/media", "/data", "/storage"),
+            "rhel": ("/srv/samba", "/srv/nfs", "/var/lib/samba", "/mnt", "/media", "/data", "/storage"),
+            "arch": ("/srv/samba", "/srv/nfs", "/mnt", "/media", "/data", "/storage"),
+            "manjaro": ("/srv/samba", "/srv/nfs", "/mnt", "/media", "/data", "/storage"),
+            "opensuse": ("/srv/samba", "/srv/nfs", "/mnt", "/media", "/data", "/storage"),
+        }
+        for base_path in distro_paths.get(distro_id, ("/srv", "/mnt", "/media", "/data", "/storage")):
             base = host_path(base_path)
             try:
                 children = sorted((item for item in base.iterdir() if item.is_dir()), key=lambda p: p.name.lower())
-                if children:
-                    for child in children[:30]:
-                        add(child.name, f"{base_path}/{child.name}")
-                elif base.is_dir():
-                    add(Path(base_path).name, base_path)
+                for child in children[:30]:
+                    add(child.name, f"{base_path}/{child.name}", f"{distro_id.title()}-Pfad")
             except OSError:
                 pass
     return roots
+
+
+def cli_command(command):
+    normalized = " ".join(command.strip().lower().split())
+    if normalized in ("help", "?"):
+        return (
+            "Available commands:\n"
+            "  system       Distribution, kernel and CPU\n"
+            "  uptime       Host uptime and load\n"
+            "  memory       RAM and swap usage\n"
+            "  disks        Mounted storage overview\n"
+            "  network      Interfaces and live traffic\n"
+            "  docker ps    Docker container status\n"
+            "  shares       Detected SMB/NFS/data shares\n"
+            "  version      Dashboard version\n"
+            "  clear        Clear this terminal"
+        )
+    system = system_info()
+    if normalized in ("system", "uname", "uname -a"):
+        return (
+            f"{system['os']}\n"
+            f"Kernel: {system['kernel']} ({system['architecture']})\n"
+            f"CPU: {system['cpu']['model']} · {system['cpu']['cores']} cores"
+        )
+    if normalized == "uptime":
+        return f"Uptime: {system['uptime']} seconds\nLoad: {' '.join(system['load'])}"
+    if normalized in ("memory", "free", "free -h"):
+        memory = system["memory"]
+        return (
+            f"RAM:  {bytes_label(memory['used'])} / {bytes_label(memory['total'])} ({memory['percent']}%)\n"
+            f"Swap: {bytes_label(memory['swapUsed'])} / {bytes_label(memory['swapTotal'])}"
+        )
+    if normalized in ("disks", "df", "df -h"):
+        rows = ["MOUNT                 USED / TOTAL       USE%  FILESYSTEM"]
+        for disk in storage_info():
+            rows.append(
+                f"{disk['mount'][:20]:<20}  {bytes_label(disk['used']):>8} / {bytes_label(disk['total']):<8} "
+                f"{disk['percent']:>5}%  {disk['filesystem']}"
+            )
+        return "\n".join(rows) if len(rows) > 1 else "No data filesystems detected."
+    if normalized in ("network", "ip", "ip a"):
+        network = system["network"]
+        return (
+            f"Interfaces: {', '.join(network['interfaces']) or 'none'}\n"
+            f"Download: {bytes_label(network['down'])}/s\nUpload:   {bytes_label(network['up'])}/s"
+        )
+    if normalized in ("docker", "docker ps"):
+        docker = docker_info()
+        if not docker.get("available"):
+            return f"Docker unavailable: {docker.get('error')}"
+        rows = ["NAME                         STATE       IMAGE"]
+        for item in docker["containers"]:
+            rows.append(f"{item['name'][:28]:<28} {item['state']:<11} {item['image']}")
+        return "\n".join(rows)
+    if normalized == "shares":
+        roots = share_roots()
+        return "\n".join(f"{root['protocol']:<12} {root['name']:<24} {root['path']}" for root in roots) or "No shares detected."
+    if normalized in ("version", "--version"):
+        return f"Ubuntu Control Dashboard {VERSION} · latest"
+    raise ValueError("Command not allowed. Type 'help' for available commands.")
 
 
 def shares_info(share_index=None, relative=""):
@@ -522,6 +627,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"error": "Nicht angemeldet"}, 401)
             return
         path = urlparse(self.path).path
+        if path == "/api/cli":
+            try:
+                length = min(int(self.headers.get("Content-Length", "0")), 4096)
+                payload = json.loads(self.rfile.read(length) or b"{}")
+                command = str(payload.get("command", ""))[:200]
+                self.send_json({"output": cli_command(command)})
+            except (ValueError, json.JSONDecodeError) as exc:
+                self.send_json({"error": str(exc)}, 400)
+            return
         match = re.fullmatch(r"/api/docker/([a-f0-9]{12,64})/(start|stop|restart)", path)
         if not match:
             self.send_json({"error": "Ungültige Aktion"}, 404)

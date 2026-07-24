@@ -14,15 +14,16 @@
       <span><strong id="distro-name">UBUNTU</strong><small>CONTROL</small></span>
     </a>
     <nav>
-      <button class="nav active" data-page="overview"><span>⌂</span> Übersicht</button>
-      <button class="nav" data-page="docker"><span>⬡</span> Container</button>
-      <button class="nav" data-page="storage"><span>▤</span> Speicher</button>
-      <button class="nav" data-page="shares"><span>▱</span> Freigaben</button>
-      <button class="nav" data-page="processes"><span>≋</span> Prozesse</button>
-      <button class="nav" data-page="logs"><span>⌁</span> Systemlogs</button>
+      <button class="nav active" data-page="overview"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg><span data-i18n="nav.overview">Overview</span></button>
+      <button class="nav" data-page="docker"><svg viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 7v10l9 5 9-5V7M12 12v10"/></svg><span data-i18n="nav.containers">Containers</span></button>
+      <button class="nav" data-page="storage"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v7c0 1.7 4 3 9 3s9-1.3 9-3V5M3 12v7c0 1.7 4 3 9 3s9-1.3 9-3v-7"/></svg><span data-i18n="nav.storage">Storage</span></button>
+      <button class="nav" data-page="shares"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3V7Z"/><path d="M3 7V5h6l2 2"/></svg><span data-i18n="nav.shares">Shares</span></button>
+      <button class="nav" data-page="processes"><svg viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg><span data-i18n="nav.processes">Processes</span></button>
+      <button class="nav" data-page="logs"><svg viewBox="0 0 24 24"><path d="M5 3h14v18H5zM8 8h8M8 12h8M8 16h5"/></svg><span data-i18n="nav.logs">System logs</span></button>
+      <button class="nav" data-page="cli"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9l3 3-3 3M13 15h4"/></svg><span data-i18n="nav.cli">CLI</span></button>
     </nav>
     <div class="side-foot">
-      <span class="pulse"></span> Live verbunden
+      <span class="pulse"></span> <span data-i18n="status.connected">Live connected</span>
       <small id="version">Version – · latest</small>
     </div>
   </aside>
@@ -30,50 +31,66 @@
   <main>
     <header>
       <button class="mobile-menu" aria-label="Menü öffnen">☰</button>
-      <div>
+      <div class="page-heading">
         <p class="eyebrow" id="page-kicker">SYSTEMZENTRALE</p>
-        <h1 id="page-title">Übersicht</h1>
+        <div class="title-line">
+          <h1 id="page-title">Overview</h1>
+          <div class="clock">
+            <strong id="clock-time">--:--:--</strong>
+            <small id="clock-date">–</small>
+          </div>
+        </div>
       </div>
       <div class="header-actions">
         <span class="live-status"><i></i><span id="live-status">LIVE · 500 ms</span></span>
         <label class="layout-toggle" title="Dashboard-Karten verschieben">
           <input id="layout-edit" type="checkbox">
           <span class="toggle-track"><i></i></span>
-          <b>Layout</b>
+          <b data-i18n="layout.label">Layout</b>
         </label>
         <span class="version-badge" id="version-badge">v– · latest</span>
-        <span class="updated" id="updated">Verbinde…</span>
+        <select id="language-select" class="language-select" aria-label="Language">
+          <option value="en">EN · English</option>
+          <option value="de">DE · Deutsch</option>
+          <option value="fr">FR · Français</option>
+          <option value="es">ES · Español</option>
+          <option value="it">IT · Italiano</option>
+          <option value="pt">PT · Português</option>
+          <option value="nl">NL · Nederlands</option>
+          <option value="pl">PL · Polski</option>
+        </select>
+        <span class="updated" id="updated">Connecting…</span>
         <button class="icon-button" id="refresh" title="Jetzt aktualisieren">↻</button>
       </div>
     </header>
 
     <section class="page active" id="page-overview">
-      <div class="hero">
+      <div class="hero" data-overview-widget="server" data-overview-section="server">
         <div>
-          <span class="status-pill"><i></i> SERVER ONLINE</span>
+          <span class="status-pill"><i></i> <span data-i18n="overview.serverOnline">SERVER ONLINE</span></span>
           <h2 id="hostname">Ubuntu Server</h2>
           <p><span id="os">Ubuntu</span> · Kernel <span id="kernel">–</span></p>
         </div>
         <div class="hero-meta">
-          <div><small>UPTIME</small><strong id="uptime">–</strong></div>
-          <div><small>LOAD</small><strong id="load">–</strong></div>
+          <div><small data-i18n="overview.uptime">UPTIME</small><strong id="uptime">–</strong></div>
+          <div><small data-i18n="overview.load">LOAD</small><strong id="load">–</strong></div>
         </div>
       </div>
 
-      <div class="metrics">
+      <div class="metrics" data-overview-section="metrics">
         <article class="metric orange" data-widget="cpu">
           <div class="metric-icon">◫</div>
-          <div><small>PROZESSOR</small><strong id="cpu-value">0%</strong><span id="cpu-sub">–</span></div>
+          <div><small data-i18n="overview.processor">PROCESSOR</small><strong id="cpu-value">0%</strong><span id="cpu-sub">–</span></div>
           <div class="ring" id="cpu-ring"><span id="cpu-ring-value">0</span></div>
         </article>
         <article class="metric violet" data-widget="memory">
           <div class="metric-icon">▦</div>
-          <div><small>ARBEITSSPEICHER</small><strong id="ram-value">0%</strong><span id="ram-sub">–</span></div>
+          <div><small data-i18n="overview.memory">MEMORY</small><strong id="ram-value">0%</strong><span id="ram-sub">–</span></div>
           <div class="ring" id="ram-ring"><span id="ram-ring-value">0</span></div>
         </article>
         <article class="metric cyan" data-widget="network">
           <div class="metric-icon">↕</div>
-          <div><small>NETZWERK</small><strong id="network-value">0 B/s</strong><span id="network-sub">–</span></div>
+          <div><small data-i18n="overview.network">NETWORK</small><strong id="network-value">0 B/s</strong><span id="network-sub">–</span></div>
           <div class="spark"><i></i><i></i><i></i><i></i><i></i><i></i></div>
         </article>
         <article class="metric green" data-widget="docker">
@@ -83,37 +100,37 @@
         </article>
       </div>
 
-      <div class="dashboard-grid">
-        <article class="panel span-2">
+      <div class="dashboard-grid" data-overview-section="details">
+        <article class="panel span-2" data-panel-widget="containers">
           <div class="panel-head">
-            <div><span class="panel-icon">⬡</span><h3>Docker Container</h3></div>
-            <button class="text-button" data-jump="docker">Alle anzeigen →</button>
+            <div><span class="panel-icon">⬡</span><h3 data-i18n="panel.containers">Docker containers</h3></div>
+            <button class="text-button" data-jump="docker"><span data-i18n="common.showAll">Show all</span> →</button>
           </div>
           <div id="container-preview" class="container-preview skeleton-block"></div>
         </article>
-        <article class="panel">
+        <article class="panel" data-panel-widget="temperatures">
           <div class="panel-head">
-            <div><span class="panel-icon">♨</span><h3>Temperaturen</h3></div>
+            <div><span class="panel-icon">♨</span><h3 data-i18n="panel.temperatures">Temperatures</h3></div>
             <span class="live-tag">LIVE</span>
           </div>
-          <div id="temperatures" class="temperature-list empty-state">Keine Sensorwerte</div>
+          <div id="temperatures" class="temperature-list empty-state">No sensor data</div>
         </article>
-        <article class="panel span-2">
+        <article class="panel span-2" data-panel-widget="storage">
           <div class="panel-head">
-            <div><span class="panel-icon">▤</span><h3>Speicher</h3></div>
-            <button class="text-button" data-jump="storage">Details →</button>
+            <div><span class="panel-icon">▤</span><h3 data-i18n="panel.storage">Storage</h3></div>
+            <button class="text-button" data-jump="storage"><span data-i18n="common.details">Details</span> →</button>
           </div>
           <div id="storage-preview" class="storage-list skeleton-block"></div>
         </article>
-        <article class="panel">
+        <article class="panel" data-panel-widget="host">
           <div class="panel-head">
-            <div><span class="panel-icon">◎</span><h3>Host-Details</h3></div>
+            <div><span class="panel-icon">◎</span><h3 data-i18n="panel.host">Host details</h3></div>
           </div>
           <dl class="details">
-            <div><dt>Architektur</dt><dd id="architecture">–</dd></div>
-            <div><dt>CPU-Kerne</dt><dd id="cores">–</dd></div>
-            <div><dt>Interfaces</dt><dd id="interfaces">–</dd></div>
-            <div><dt>Dashboard</dt><dd id="dashboard-uptime">–</dd></div>
+            <div><dt data-i18n="details.architecture">Architecture</dt><dd id="architecture">–</dd></div>
+            <div><dt data-i18n="details.cores">CPU cores</dt><dd id="cores">–</dd></div>
+            <div><dt data-i18n="details.interfaces">Interfaces</dt><dd id="interfaces">–</dd></div>
+            <div><dt data-i18n="details.dashboard">Dashboard</dt><dd id="dashboard-uptime">–</dd></div>
           </dl>
         </article>
       </div>
@@ -121,7 +138,7 @@
 
     <section class="page" id="page-docker">
       <div class="section-intro">
-        <div><h2>Container</h2><p>Alle Docker-Workloads auf diesem Host verwalten.</p></div>
+        <div><h2 data-i18n="nav.containers">Containers</h2><p data-i18n="section.workloads">Manage all Docker workloads on this host.</p></div>
         <div class="summary-chips" id="docker-summary"></div>
       </div>
       <div class="panel table-panel">
@@ -130,45 +147,66 @@
     </section>
 
     <section class="page" id="page-storage">
-      <div class="section-intro"><div><h2>Speicher</h2><p>Eingebundene lokale Laufwerke und Netzwerkfreigaben.</p></div></div>
+      <div class="section-intro"><div><h2 data-i18n="nav.storage">Storage</h2><p data-i18n="section.storage">Mounted local drives and network filesystems.</p></div></div>
       <div id="storage-cards" class="storage-cards"></div>
     </section>
 
     <section class="page" id="page-shares">
       <div class="section-intro">
-        <div><h2>Freigaben</h2><p>SMB-Freigaben und Datenverzeichnisse des Hosts durchsuchen.</p></div>
-        <span class="read-only-badge">NUR LESEN</span>
+        <div><h2 data-i18n="nav.shares">Shares</h2><p data-i18n="section.shares">Browse detected SMB, NFS and Linux data directories.</p></div>
+        <span class="read-only-badge" data-i18n="common.readOnly">READ ONLY</span>
       </div>
       <div class="shares-layout">
         <aside class="panel share-list-panel">
-          <div class="panel-head"><div><span class="panel-icon">▱</span><h3>Freigaben</h3></div></div>
+          <div class="panel-head"><div><span class="panel-icon">▱</span><h3 data-i18n="nav.shares">Shares</h3></div></div>
           <div id="share-list" class="share-list loading">Suche Freigaben…</div>
         </aside>
         <article class="panel file-browser">
           <div class="file-toolbar">
-            <button class="action" id="share-up" disabled>← Zurück</button>
-            <div id="share-breadcrumbs" class="breadcrumbs"><span>Freigabe auswählen</span></div>
+            <button class="action" id="share-up" disabled>← <span data-i18n="shares.back">Back</span></button>
+            <div id="share-breadcrumbs" class="breadcrumbs"><span data-i18n="shares.select">Select a share</span></div>
             <span id="share-count" class="file-count">–</span>
           </div>
           <div id="file-list" class="file-list">
-            <div class="empty-state">Wähle links eine Freigabe aus.</div>
+            <div class="empty-state" data-i18n="shares.select">Select a share</div>
           </div>
         </article>
       </div>
     </section>
 
     <section class="page" id="page-processes">
-      <div class="section-intro"><div><h2>Prozesse</h2><p>Die Prozesse mit dem aktuell größten Speicherbedarf.</p></div></div>
+      <div class="section-intro"><div><h2 data-i18n="nav.processes">Processes</h2><p data-i18n="section.processes">Processes with the highest memory usage.</p></div></div>
       <div class="panel table-panel"><div id="process-table" class="loading">Lade Prozesse…</div></div>
     </section>
 
     <section class="page" id="page-logs">
-      <div class="section-intro"><div><h2>Systemlogs</h2><p id="log-source">Letzte Host-Ereignisse</p></div></div>
+      <div class="section-intro"><div><h2 data-i18n="nav.logs">System logs</h2><p id="log-source" data-i18n="section.logs">Recent host events</p></div></div>
       <div class="panel log-panel"><pre id="log-output">Lade Logs…</pre></div>
+    </section>
+
+    <section class="page" id="page-cli">
+      <div class="section-intro">
+        <div><h2 data-i18n="cli.title">Diagnostic CLI</h2><p data-i18n="cli.description">Safe read-only commands for this host.</p></div>
+        <span class="read-only-badge" data-i18n="common.safeMode">SAFE MODE</span>
+      </div>
+      <div class="panel terminal-panel">
+        <div class="terminal-head">
+          <span><i></i><i></i><i></i></span>
+          <strong id="terminal-title">dashboard@server:~</strong>
+          <button class="text-button" id="terminal-clear" data-i18n="cli.clear">Clear</button>
+        </div>
+        <div id="terminal-output" class="terminal-output"><div class="terminal-line system">Ubuntu Control diagnostic CLI · Type 'help'</div></div>
+        <form id="terminal-form" class="terminal-input-line">
+          <span>$</span>
+          <input id="terminal-input" autocomplete="off" spellcheck="false" placeholder="help" aria-label="Command">
+          <button type="submit" data-i18n="cli.run">Run</button>
+        </form>
+      </div>
     </section>
   </main>
 
   <div id="toast" role="status"></div>
+  <script src="/i18n.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
