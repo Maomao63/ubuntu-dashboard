@@ -4,7 +4,7 @@ services:
     build:
       context: .
       args:
-        APP_VERSION: "1.10.0"
+        APP_VERSION: "1.10.1"
     container_name: ubuntu-dashboard
     restart: unless-stopped
     privileged: true
@@ -29,6 +29,10 @@ services:
       - type: bind
         source: /proc/1/mounts
         target: /host-proc-mounts
+        read_only: true
+      - type: bind
+        source: /proc/1/net/route
+        target: /host-proc-net-route
         read_only: true
       - /sys:/host/sys:ro
       - /var/run/docker.sock:/var/run/docker.sock

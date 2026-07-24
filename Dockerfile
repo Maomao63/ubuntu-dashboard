@@ -6,7 +6,7 @@ RUN npm install --prefix /terminal-assets \
 
 FROM python:3.13-alpine
 
-ARG APP_VERSION=1.10.0
+ARG APP_VERSION=1.10.1
 ENV APP_VERSION=${APP_VERSION} \
     PYTHONUNBUFFERED=1 \
     PORT=8080 \

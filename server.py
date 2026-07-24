@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
 # Deliberately image-owned: old Compose files must not be able to override the UI version.
-VERSION = "1.10.0"
+VERSION = "1.10.1"
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 ACCOUNT_FILE = Path(os.getenv("ACCOUNT_FILE", "/data/account.json"))
@@ -41,6 +41,7 @@ SSH_HOST = os.getenv("SSH_HOST", "auto")
 SSH_PORT = int(os.getenv("SSH_PORT", "22"))
 NETWORK_INTERFACE = os.getenv("NETWORK_INTERFACE", "auto").strip()
 HOST_MOUNTS_FILE = Path(os.getenv("HOST_MOUNTS_FILE", "/host-proc-mounts"))
+HOST_NET_ROUTE_FILE = Path(os.getenv("HOST_NET_ROUTE_FILE", "/host-proc-net-route"))
 STARTED = time.time()
 _sample = {"at": 0, "cpu": None, "net": None}
 _cache = {}
@@ -254,7 +255,12 @@ def monitored_interfaces(available):
     if configured and configured != ["auto"]:
         return [name for name in configured if name in available]
     default_routes = []
-    for line in read_text(host_path("/proc/net/route")).splitlines()[1:]:
+    route_text = ""
+    for source in (HOST_NET_ROUTE_FILE, host_path("/proc/1/net/route"), host_path("/proc/net/route")):
+        route_text = read_text(source)
+        if route_text.strip():
+            break
+    for line in route_text.splitlines()[1:]:
         fields = line.split()
         if len(fields) < 8 or fields[1] != "00000000":
             continue
@@ -277,16 +283,47 @@ def monitored_interfaces(available):
 
 def net_snapshot():
     available = {}
-    for line in read_text(host_path("/proc/net/dev")).splitlines()[2:]:
-        if ":" not in line:
+    sysfs = host_path("/sys/class/net")
+    try:
+        interfaces = list(sysfs.iterdir())
+    except OSError:
+        interfaces = []
+    for interface in interfaces:
+        if interface.name == "lo":
             continue
-        name, values = line.split(":", 1)
-        fields = values.split()
-        name = name.strip()
-        if name != "lo" and len(fields) >= 9:
-            available[name] = (int(fields[0]), int(fields[8]))
+        try:
+            received = int(read_text(interface / "statistics/rx_bytes").strip())
+            transmitted = int(read_text(interface / "statistics/tx_bytes").strip())
+            available[interface.name] = (received, transmitted)
+        except ValueError:
+            continue
+    if not available:
+        for source in (host_path("/proc/1/net/dev"), host_path("/proc/net/dev")):
+            content = read_text(source)
+            if not content.strip():
+                continue
+            for line in content.splitlines()[2:]:
+                if ":" not in line:
+                    continue
+                name, values = line.split(":", 1)
+                fields = values.split()
+                name = name.strip()
+                if name != "lo" and len(fields) >= 9:
+                    available[name] = (int(fields[0]), int(fields[8]))
+            if available:
+                break
     selected = monitored_interfaces(available)
     return {name: available[name] for name in selected}
+
+
+def network_rates(current, previous, elapsed):
+    if not previous or elapsed <= 0:
+        return {"down": 0, "up": 0}
+    shared = current.keys() & previous.keys()
+    return {
+        "down": sum(max(0, current[name][0] - previous[name][0]) for name in shared) / elapsed,
+        "up": sum(max(0, current[name][1] - previous[name][1]) for name in shared) / elapsed,
+    }
 
 
 def memory_info():
@@ -331,9 +368,7 @@ def system_info():
         if total_delta > 0:
             cpu_percent = round((total_delta - idle_delta) / total_delta * 100, 1)
     if _sample["net"] and elapsed > 0:
-        shared = current_net.keys() & _sample["net"].keys()
-        rates["down"] = sum(max(0, current_net[name][0] - _sample["net"][name][0]) for name in shared) / elapsed
-        rates["up"] = sum(max(0, current_net[name][1] - _sample["net"][name][1]) for name in shared) / elapsed
+        rates = network_rates(current_net, _sample["net"], elapsed)
     _sample = {"at": now, "cpu": current_cpu, "net": current_net}
 
     uptime_raw = read_text(host_path("/proc/uptime"), "0").split()

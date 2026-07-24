@@ -27,6 +27,10 @@ services:
         source: /proc/1/mounts
         target: /host-proc-mounts
         read_only: true
+      - type: bind
+        source: /proc/1/net/route
+        target: /host-proc-net-route
+        read_only: true
       - /sys:/host/sys:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ubuntu-dashboard-data:/data

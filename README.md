@@ -6,7 +6,7 @@ Docker-Container und verwendet ausschließlich die Python-Standardbibliothek.
 
 ## Funktionen
 
-- Live-Werte für CPU, RAM, Uptime und den tatsächlichen Traffic der aktiven Netzwerkroute
+- Live-Werte für CPU, RAM, Uptime sowie getrennten Down-/Upload über die Host-SYSFS-Zähler
 - Disk-Temperaturen, Laufwerkszustand und SMART-Health für HDDs, SSDs und NVMe
 - Docker-Container anzeigen, starten, stoppen und neu starten
 - Compose-/Arcane-Stacks in der Übersicht mit zusammengefasstem Grün/Gelb/Rot-Status
@@ -63,6 +63,10 @@ unbedingt `DASHBOARD_USER` und `DASHBOARD_PASSWORD` als Umgebungsvariablen auf
 eigene, starke Werte setzen. Die in der Compose enthaltenen Fallback-Werte sind
 nur dafür gedacht, einen ersten lokalen Start zu ermöglichen.
 
+Die Compose bindet außerdem die Routingtabelle des Host-Prozesses PID 1 ein.
+Zusammen mit `/host/sys/class/net` verhindert das, dass versehentlich nur der
+interne Traffic des Dashboard-Containers gemessen wird.
+
 ## Bereits gebautes Image verwenden
 
 Wenn das Image später in einer Registry liegt, kann der `build:`-Block aus der
@@ -116,8 +120,8 @@ anschließend bauen:
 
 ```bash
 docker compose build --pull
-docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.10.0
+docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.10.1
 docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:latest
-docker push ghcr.io/dein-name/ubuntu-dashboard:1.10.0
+docker push ghcr.io/dein-name/ubuntu-dashboard:1.10.1
 docker push ghcr.io/dein-name/ubuntu-dashboard:latest
 ```
