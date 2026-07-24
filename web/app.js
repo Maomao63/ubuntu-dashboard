@@ -14,6 +14,9 @@ let sessionInfo = null;
 let sshSocket = null;
 let sshTerminal = null;
 let sshFit = null;
+let dockerUpdates = {};
+let hostUpdateCommand = "";
+let pendingHostUpdate = false;
 
 function t(key) {
   return window.I18N?.[currentLanguage]?.[key] ?? window.I18N?.en?.[key] ?? key;
@@ -204,7 +207,10 @@ function containerMini(items) {
   if (!items.length) return `<div class="empty-state">Keine Container vorhanden</div>`;
   return items.slice(0, 6).map(item => `
     <div class="container-mini">
-      <div><strong>${escapeHtml(item.name)}</strong><i class="state-dot ${item.state}"></i></div>
+      <div><strong>${escapeHtml(item.name)}</strong><span class="container-flags">
+        ${dockerUpdates[item.fullId]?.updateAvailable ? `<i class="image-update-badge" title="${escapeHtml(t("docker.updateAvailable"))}">↻</i>` : ""}
+        <i class="state-dot ${item.health || item.state}" title="${escapeHtml(item.health || item.state)}"></i>
+      </span></div>
       <small>${escapeHtml(item.image)}</small>
     </div>`).join("");
 }
@@ -226,8 +232,8 @@ function renderContainers(docker) {
     <thead><tr><th>Container</th><th>Status</th><th>Ports</th><th>Erstellt</th><th>Aktionen</th></tr></thead>
     <tbody>${docker.containers.map(item => `
       <tr>
-        <td><div class="container-name"><span class="cube">⬡</span><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.image)}</small></div></div></td>
-        <td><span class="state ${item.state}"><i class="state-dot ${item.state}"></i>${escapeHtml(item.state)}</span><br><small>${escapeHtml(item.status)}</small></td>
+        <td><div class="container-name"><span class="cube">⬡</span><div><strong>${escapeHtml(item.name)} ${dockerUpdates[item.fullId]?.updateAvailable ? `<i class="image-update-badge inline" title="${escapeHtml(t("docker.updateAvailable"))}">↻</i>` : ""}</strong><small>${escapeHtml(item.image)}</small></div></div></td>
+        <td><span class="state ${item.state}"><i class="state-dot ${item.health || item.state}"></i>${escapeHtml(item.health || item.state)}</span><br><small>${escapeHtml(item.status)}</small></td>
         <td>${escapeHtml(item.ports.join(", ") || "–")}</td>
         <td>${new Date(item.created * 1000).toLocaleDateString("de-DE")}</td>
         <td><div class="actions">
@@ -268,6 +274,7 @@ function render(data) {
   $("#network-sub").textContent = `↓ ${bytes(system.network.down, true)} · ↑ ${bytes(system.network.up, true)}`;
   $("#docker-value").textContent = docker.available ? `${docker.containersRunning} ${t("common.active")}` : "Offline";
   $("#docker-sub").textContent = docker.available ? `${docker.containers.length} ${t("common.containers")} · Docker ${docker.version}` : docker.error;
+  $(".health-dot").className = `health-dot ${docker.available ? docker.health || "healthy" : "unhealthy"}`;
   $("#architecture").textContent = system.architecture;
   $("#cores").textContent = system.cpu.cores;
   $("#interfaces").textContent = system.network.interfaces.join(", ") || "–";
@@ -335,6 +342,7 @@ async function loadHostUpdates() {
   try {
     const response = await fetch("/api/host-updates", {cache: "no-store"});
     const data = await response.json();
+    hostUpdateCommand = data.command || "";
     if (data.count === null) {
       $("#host-updates").textContent = t("updates.unavailable");
       $("#host-updates").className = "unknown";
@@ -350,6 +358,35 @@ async function loadHostUpdates() {
     $("#host-updates").className = "unknown";
   }
 }
+
+async function loadDockerUpdates() {
+  try {
+    const response = await fetch("/api/docker-updates", {cache: "no-store"});
+    const data = await response.json();
+    dockerUpdates = data.containers || {};
+    if (overview) render(overview);
+  } catch {
+    dockerUpdates = {};
+  }
+}
+
+function sendPendingHostUpdate() {
+  if (!pendingHostUpdate || !hostUpdateCommand || sshSocket?.readyState !== WebSocket.OPEN) return;
+  pendingHostUpdate = false;
+  sshTerminal.writeln(`\r\n\x1b[38;5;214m${t("updates.starting")}\x1b[0m`);
+  sshSocket.send(JSON.stringify({type: "input", data: `${hostUpdateCommand}\r`}));
+}
+
+$("#host-updates").addEventListener("click", () => {
+  if (!hostUpdateCommand || !$("#host-updates").classList.contains("available")) return;
+  pendingHostUpdate = true;
+  setPage("cli");
+  if (sshSocket?.readyState === WebSocket.OPEN) sendPendingHostUpdate();
+  else {
+    $("#ssh-error").textContent = t("updates.loginHint");
+    $("#ssh-username").focus();
+  }
+});
 
 function scheduleLiveUpdate(delay = LIVE_INTERVAL_MS) {
   clearTimeout(liveTimer);
@@ -435,6 +472,8 @@ function renderFiles(data) {
           ? `<button data-open-path="${escapeHtml(nextPath)}">${escapeHtml(item.name)}</button>`
           : `<button data-edit-path="${escapeHtml(nextPath)}">${escapeHtml(item.name)}</button>`}
       </div>
+      <span class="file-meta owner">${escapeHtml(item.owner)}<small>${escapeHtml(item.group)}</small></span>
+      <span class="file-permissions" title="${escapeHtml(item.mode)}">${escapeHtml(item.permissions)}</span>
       <span class="file-meta">${item.type === "directory" ? t("common.folder") : bytes(item.size)}</span>
       <span class="file-meta modified">${new Date(item.modified * 1000).toLocaleString("de-DE", {dateStyle: "short", timeStyle: "short"})}</span>
       <span class="file-actions">
@@ -679,6 +718,7 @@ $("#ssh-login").addEventListener("submit", event => {
       $("#terminal-title").textContent = `${message.username}@${message.host}:${message.port}`;
       setSshStatus("connected", t("cli.connected"));
       sshTerminal.focus();
+      if (pendingHostUpdate) setTimeout(sendPendingHostUpdate, 1500);
     } else if (message.type === "error") {
       $("#ssh-error").textContent = message.message || "SSH-Verbindung fehlgeschlagen.";
       sshTerminal.writeln(`\r\n\x1b[31m${message.message || "SSH connection failed"}\x1b[0m`);
@@ -778,8 +818,10 @@ async function bootstrap() {
     $("#ssh-host").value = `${sessionInfo.sshHost}:${sessionInfo.sshPort}`;
     applyLanguage(currentLanguage);
     loadOverview();
+    loadDockerUpdates();
     setInterval(loadVersionCheck, 15 * 60 * 1000);
     setInterval(loadHostUpdates, 30 * 60 * 1000);
+    setInterval(loadDockerUpdates, 15 * 60 * 1000);
     try {
       setupSshTerminal();
     } catch (terminalError) {

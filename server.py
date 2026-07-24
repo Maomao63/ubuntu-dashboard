@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import concurrent.futures
 import fcntl
 import hashlib
 import hmac
@@ -13,21 +14,23 @@ import select
 import signal
 import shutil
 import socket
+import stat
 import struct
 import subprocess
 import termios
 import time
+import urllib.error
 import urllib.request
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
 # Deliberately image-owned: old Compose files must not be able to override the UI version.
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 ACCOUNT_FILE = Path(os.getenv("ACCOUNT_FILE", "/data/account.json"))
@@ -175,6 +178,17 @@ def github_version_info():
 
 def host_package_updates():
     distro = os_release_info().get("ID", "").lower()
+    update_commands = {
+        "ubuntu": "sudo apt update && sudo apt upgrade -y",
+        "debian": "sudo apt update && sudo apt upgrade -y",
+        "fedora": "sudo dnf upgrade --refresh -y",
+        "rocky": "sudo dnf upgrade --refresh -y",
+        "rhel": "sudo dnf upgrade --refresh -y",
+        "arch": "sudo pacman -Syu --noconfirm",
+        "manjaro": "sudo pacman -Syu --noconfirm",
+        "opensuse": "sudo zypper refresh && sudo zypper update -y",
+    }
+    update_command = update_commands.get(distro)
     dnf_binary = "/usr/bin/dnf" if host_path("/usr/bin/dnf").exists() else "/usr/bin/dnf5"
     commands = {
         "ubuntu": ["/usr/bin/apt", "list", "--upgradable"],
@@ -188,7 +202,7 @@ def host_package_updates():
     }
     command = commands.get(distro)
     if not command or not host_path(command[0]).exists():
-        return {"available": None, "count": None, "distro": distro}
+        return {"available": None, "count": None, "distro": distro, "command": update_command}
     try:
         result = subprocess.run(
             ["chroot", str(HOST_ROOT), *command],
@@ -204,9 +218,9 @@ def host_package_updates():
             updates = lines
         else:
             updates = [line for line in lines if "|" in line and not line.startswith(("-", "Repository", "S |"))]
-        return {"available": bool(updates), "count": len(updates), "distro": distro}
+        return {"available": bool(updates), "count": len(updates), "distro": distro, "command": update_command}
     except Exception as exc:
-        return {"available": None, "count": None, "distro": distro, "error": str(exc)}
+        return {"available": None, "count": None, "distro": distro, "command": update_command, "error": str(exc)}
 
 
 def request_host(handler):
@@ -459,13 +473,29 @@ def docker_info():
         own_container_id = socket.gethostname()
         for item in raw:
             state = item.get("State", "unknown")
+            status = item.get("Status", "")
+            status_lower = status.lower()
+            if "unhealthy" in status_lower:
+                health = "unhealthy"
+            elif "health: starting" in status_lower or state in ("restarting", "paused"):
+                health = "starting"
+            elif "healthy" in status_lower:
+                health = "healthy"
+            elif state == "running":
+                health = "running"
+            elif state in ("exited", "dead"):
+                health = "stopped"
+            else:
+                health = "unknown"
             containers.append({
                 "id": item.get("Id", "")[:12],
                 "fullId": item.get("Id", ""),
                 "name": (item.get("Names") or ["Unbenannt"])[0].lstrip("/"),
                 "image": item.get("Image", ""),
+                "imageId": item.get("ImageID", ""),
                 "state": state,
-                "status": item.get("Status", ""),
+                "health": health,
+                "status": status,
                 "created": item.get("Created", 0),
                 "isSelf": item.get("Id", "").startswith(own_container_id),
                 "ports": [
@@ -475,16 +505,116 @@ def docker_info():
             })
         order = {"running": 0, "restarting": 1, "paused": 2, "exited": 3, "dead": 4}
         containers.sort(key=lambda c: (order.get(c["state"], 9), c["name"].lower()))
+        aggregate_health = "unhealthy" if any(
+            container["health"] == "unhealthy" for container in containers
+        ) else "starting" if any(
+            container["health"] == "starting" for container in containers
+        ) else "healthy"
         return {
             "available": True,
             "version": info.get("ServerVersion", ""),
             "containersRunning": info.get("ContainersRunning", 0),
             "containersStopped": info.get("ContainersStopped", 0),
             "images": info.get("Images", 0),
+            "health": aggregate_health,
             "containers": containers,
         }
     except Exception as exc:
         return {"available": False, "error": str(exc), "containers": []}
+
+
+def parse_image_reference(reference):
+    if not reference or reference.startswith("sha256:") or "@" in reference:
+        return None
+    parts = reference.split("/")
+    if len(parts) > 1 and ("." in parts[0] or ":" in parts[0] or parts[0] == "localhost"):
+        registry = parts.pop(0)
+    else:
+        registry = "registry-1.docker.io"
+    image = "/".join(parts)
+    last = image.rsplit("/", 1)[-1]
+    if ":" in last:
+        image, tag = image.rsplit(":", 1)
+    else:
+        tag = "latest"
+    if registry == "registry-1.docker.io" and "/" not in image:
+        image = f"library/{image}"
+    return registry, image, tag
+
+
+def remote_manifest_digest(registry, repository, tag):
+    url = f"https://{registry}/v2/{quote(repository, safe='/')}/manifests/{quote(tag, safe='')}"
+    headers = {
+        "User-Agent": f"ubuntu-dashboard/{VERSION}",
+        "Accept": (
+            "application/vnd.oci.image.index.v1+json, "
+            "application/vnd.docker.distribution.manifest.list.v2+json, "
+            "application/vnd.oci.image.manifest.v1+json, "
+            "application/vnd.docker.distribution.manifest.v2+json"
+        ),
+    }
+
+    def request_digest(auth_header=None):
+        request_headers = dict(headers)
+        if auth_header:
+            request_headers["Authorization"] = auth_header
+        request = urllib.request.Request(url, headers=request_headers, method="HEAD")
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return response.headers.get("Docker-Content-Digest")
+
+    try:
+        return request_digest()
+    except urllib.error.HTTPError as exc:
+        if exc.code != 401:
+            raise
+        challenge = exc.headers.get("WWW-Authenticate", "")
+        if not challenge.lower().startswith("bearer "):
+            raise
+        options = dict(re.findall(r'(\w+)="([^"]*)"', challenge))
+        realm = options.pop("realm", "")
+        if not realm:
+            raise
+        token_url = f"{realm}?{urlencode(options)}"
+        token_request = urllib.request.Request(token_url, headers={"User-Agent": headers["User-Agent"]})
+        with urllib.request.urlopen(token_request, timeout=5) as response:
+            token_payload = json.loads(response.read())
+        token = token_payload.get("token") or token_payload.get("access_token")
+        return request_digest(f"Bearer {token}")
+
+
+def docker_image_updates():
+    docker = docker_info()
+    if not docker.get("available"):
+        return {"available": False, "containers": {}}
+    image_results = {}
+    container_results = {}
+    references = list(dict.fromkeys(container["image"] for container in docker["containers"][:40]))
+
+    def check_image(reference):
+        parsed = parse_image_reference(reference)
+        if not parsed:
+            return reference, {"updateAvailable": None}
+        try:
+            inspect = docker_request("GET", f"/images/{quote(reference, safe='')}/json") or {}
+            local_digests = {
+                digest.rsplit("@", 1)[-1] for digest in inspect.get("RepoDigests", []) if "@" in digest
+            }
+            remote_digest = remote_manifest_digest(*parsed)
+            return reference, {
+                "updateAvailable": bool(local_digests and remote_digest and remote_digest not in local_digests),
+                "remoteDigest": remote_digest,
+            }
+        except Exception as exc:
+            return reference, {"updateAvailable": None, "error": str(exc)}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+        for reference, result in executor.map(check_image, references):
+            image_results[reference] = result
+
+    for container in docker["containers"][:40]:
+        reference = container["image"]
+        container_results[container["fullId"]] = image_results[reference]
+    return {"available": True, "containers": container_results}
 
 
 def storage_info():
@@ -719,6 +849,19 @@ def cli_command(command):
     raise ValueError("Command not allowed. Type 'help' for available commands.")
 
 
+def host_identity_maps():
+    users, groups = {}, {}
+    for line in read_text(host_path("/etc/passwd")).splitlines():
+        parts = line.split(":")
+        if len(parts) > 2 and parts[2].isdigit():
+            users[int(parts[2])] = parts[0]
+    for line in read_text(host_path("/etc/group")).splitlines():
+        parts = line.split(":")
+        if len(parts) > 2 and parts[2].isdigit():
+            groups[int(parts[2])] = parts[0]
+    return users, groups
+
+
 def shares_info(share_index=None, relative=""):
     roots = share_roots()
     public_roots = []
@@ -750,6 +893,7 @@ def shares_info(share_index=None, relative=""):
     if not target.is_dir():
         raise ValueError("Ordner nicht gefunden")
     entries = []
+    users, groups = host_identity_maps()
     try:
         items = sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
         for item in items[:500]:
@@ -761,6 +905,10 @@ def shares_info(share_index=None, relative=""):
                     "size": stat_info.st_size,
                     "modified": int(stat_info.st_mtime),
                     "hidden": item.name.startswith("."),
+                    "owner": users.get(stat_info.st_uid, str(stat_info.st_uid)),
+                    "group": groups.get(stat_info.st_gid, str(stat_info.st_gid)),
+                    "permissions": stat.filemode(stat_info.st_mode),
+                    "mode": format(stat_info.st_mode & 0o7777, "04o"),
                 })
             except OSError:
                 pass
@@ -916,6 +1064,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(cached("github-version", 900, github_version_info))
         elif path == "/api/host-updates":
             self.send_json(cached("host-updates", 1800, host_package_updates))
+        elif path == "/api/docker-updates":
+            self.send_json(cached("docker-updates", 900, docker_image_updates))
         elif path == "/api/account":
             self.send_json({
                 "username": session.get("username", "local"),

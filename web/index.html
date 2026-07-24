@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0e13">
   <title>Ubuntu Server Dashboard</title>
-  <link rel="stylesheet" href="/vendor/xterm.css?v=1.6.0">
-  <link rel="stylesheet" href="/styles.css?v=1.6.0">
+  <link rel="stylesheet" href="/vendor/xterm.css?v=1.7.0">
+  <link rel="stylesheet" href="/styles.css?v=1.7.0">
 </head>
 <body>
   <aside class="sidebar">
@@ -61,7 +61,7 @@
         </div>
         <div class="hero-meta">
           <div><small data-i18n="overview.uptime">UPTIME</small><strong id="uptime">–</strong></div>
-          <div class="host-updates"><small data-i18n="overview.updates">SYSTEM UPDATES</small><strong id="host-updates">Checking…</strong></div>
+          <div class="host-updates"><small data-i18n="overview.updates">SYSTEM UPDATES</small><button id="host-updates" type="button">Checking…</button></div>
         </div>
         <label class="layout-toggle hero-layout" title="Dashboard-Karten verschieben">
           <input id="layout-edit" type="checkbox">
@@ -161,6 +161,11 @@
             <span id="share-count" class="file-count">–</span>
             <button class="action" id="new-folder" disabled>＋ <span data-i18n="browser.newFolder">Folder</span></button>
             <button class="action" id="new-file" disabled>＋ <span data-i18n="browser.newFile">Text file</span></button>
+          </div>
+          <div class="file-table-head">
+            <span data-i18n="browser.name">Name</span><span data-i18n="browser.owner">Owner</span>
+            <span data-i18n="browser.permission">Permission</span><span data-i18n="browser.size">Size</span>
+            <span data-i18n="browser.modified">Last modified</span><span></span>
           </div>
           <div id="file-list" class="file-list">
             <div class="empty-state" data-i18n="shares.select">Select a share</div>
@@ -279,9 +284,9 @@
   </dialog>
 
   <div id="toast" role="status"></div>
-  <script src="/i18n.js?v=1.6.0"></script>
-  <script src="/vendor/xterm.js?v=1.6.0"></script>
-  <script src="/vendor/addon-fit.js?v=1.6.0"></script>
-  <script src="/app.js?v=1.6.0"></script>
+  <script src="/i18n.js?v=1.7.0"></script>
+  <script src="/vendor/xterm.js?v=1.7.0"></script>
+  <script src="/vendor/addon-fit.js?v=1.7.0"></script>
+  <script src="/app.js?v=1.7.0"></script>
 </body>
 </html>

@@ -9,14 +9,16 @@ Docker-Container und verwendet ausschließlich die Python-Standardbibliothek.
 - Live-Werte für CPU, RAM, Uptime und Netzwerk
 - Temperaturen, sofern der Host sie unter `/sys/class/thermal` bereitstellt
 - Docker-Container anzeigen, starten, stoppen und neu starten
+- Docker-Healthstatus in Grün/Gelb/Rot und Registry-Prüfung auf neue Images
 - Lokale Datenträger und Netzwerk-Mounts mit Belegung
 - Prozesse nach Speicherbedarf
 - klassische Host-Logs aus `/var/log`
 - schreibender Data Browser für Ordner sowie UTF-8-Text-, YAML- und Konfigurationsdateien
+- Besitzer, Gruppe sowie symbolische und oktale Dateiberechtigungen
 - frei sortierbare Dashboard-Karten mit gespeichertem Layout
 - automatische Distributionserkennung und passendes Branding
 - Live-Werte im 500-ms-Takt
-- GitHub-Versionsprüfung und Hinweis auf verfügbare Host-Paketupdates
+- GitHub-Versionsprüfung und klickbarer SSH-Workflow für Host-Paketupdates
 - englisches Basis-UI mit Deutsch, Französisch, Spanisch, Italienisch,
   Portugiesisch, Niederländisch und Polnisch
 - vollständiges interaktives Host-Terminal über eine echte SSH-Sitzung
@@ -105,8 +107,8 @@ anschließend bauen:
 
 ```bash
 docker compose build --pull
-docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.6.0
+docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.7.0
 docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:latest
-docker push ghcr.io/dein-name/ubuntu-dashboard:1.6.0
+docker push ghcr.io/dein-name/ubuntu-dashboard:1.7.0
 docker push ghcr.io/dein-name/ubuntu-dashboard:latest
 ```
