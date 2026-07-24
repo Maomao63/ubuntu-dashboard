@@ -22,9 +22,12 @@ arrays are supported as one storage type, but Unraid is not required.
 
 ## Screenshots
 
-![Ubuntu Dashboard overview](docs/screenshots/overview-ubuntu.png)
+![Synthetic Ubuntu Dashboard overview with demo data](docs/screenshots/overview-ubuntu.png)
 
-![Storage, Docker and host telemetry](docs/screenshots/overview-storage-docker.png)
+![Synthetic Data Browser example with demo data](docs/screenshots/overview-storage-docker.png)
+
+All screenshots use generated demonstration data. They contain no production
+host names, addresses, account names, paths or other user information.
 
 ## Highlights
 
