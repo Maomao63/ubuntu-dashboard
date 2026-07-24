@@ -16,6 +16,7 @@ let sshTerminal = null;
 let sshFit = null;
 let dockerUpdates = {};
 let networkHistory = {down: [], up: []};
+let metricHistory = {cpu: [], memory: []};
 
 function t(key) {
   return window.I18N?.[currentLanguage]?.[key] ?? window.I18N?.en?.[key] ?? key;
@@ -86,7 +87,9 @@ const toast = (message, error = false) => {
 };
 
 function setPage(name) {
+  if (!["overview", "docker", "storage", "shares", "processes", "logs", "cli", "settings"].includes(name)) name = "overview";
   currentPage = name;
+  if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
   $$(".page").forEach(page => page.classList.toggle("active", page.id === `page-${name}`));
   $$(".nav").forEach(nav => nav.classList.toggle("active", nav.dataset.page === name));
   updatePageHeading();
@@ -106,7 +109,7 @@ function setPage(name) {
 
 $$(".nav").forEach(button => button.addEventListener("click", () => setPage(button.dataset.page)));
 $$("[data-jump]").forEach(button => button.addEventListener("click", () => setPage(button.dataset.jump)));
-$(".mobile-menu").addEventListener("click", () => document.body.classList.toggle("menu-open"));
+$$(".mobile-menu").forEach(button => button.addEventListener("click", () => document.body.classList.toggle("menu-open")));
 $("#refresh").addEventListener("click", () => loadOverview(true));
 
 function setupWidgetLayout() {
@@ -193,34 +196,25 @@ $("#distro-logo").addEventListener("error", event => {
 
 function storageRows(items, limit = items.length) {
   if (!items.length) return `<div class="empty-state">${t("common.noDrives")}</div>`;
-  return items.slice(0, limit).map(group => `
-    <div class="storage-group-preview">
-      <div class="storage-group-summary">
-        <div class="storage-name"><strong>${escapeHtml(group.name)}</strong><small>${escapeHtml(group.type)} · ${group.members.length} ${t("storage.drives")}</small></div>
-        <div class="bar"><i style="width:${Math.min(group.percent, 100)}%"></i></div>
-        <small>${bytes(group.used)} / ${bytes(group.total)}</small>
-      </div>
-      <div class="storage-members-preview">${group.members.map(member => `
-        <span><i class="disk-health ${member.status}"></i><b>${escapeHtml(member.name)}</b>
-          <small>${escapeHtml(member.role)} · ${member.used !== undefined && member.role === "data" ? `${bytes(member.used)} / ${bytes(member.total || member.size)}` : bytes(member.size)}</small>
-        </span>`).join("")}
-      </div>
-    </div>`).join("");
+  return `<div class="overview-table-head"><span>Pool</span><span>Used</span><span>Free</span><span>Usage</span></div>${items.slice(0, limit).map(group => `
+    <button class="storage-pool-row" data-jump="storage">
+      <span><i class="disk-health ${group.status}"></i><b>${escapeHtml(group.name)}</b><small>${escapeHtml(group.type)}</small></span>
+      <strong>${bytes(group.used)}</strong><strong>${bytes(group.available)}</strong>
+      <span class="pool-usage"><b>${group.percent}%</b><i><em style="width:${Math.min(group.percent, 100)}%"></em></i></span>
+    </button>`).join("")}`;
 }
 
 function stackMini(items) {
   if (!items.length) return `<div class="empty-state">${t("docker.noStacks")}</div>`;
-  return items.map(item => {
+  return `<div class="overview-table-head stack-head"><span>Name</span><span>Status</span><span>Containers</span></div>${items.map(item => {
     const updateAvailable = item.containerIds.some(id => dockerUpdates[id]?.updateAvailable);
     return `
-    <div class="container-mini stack-mini">
-      <div><strong>${escapeHtml(item.name)}</strong><span class="container-flags">
-        ${updateAvailable ? `<i class="image-update-badge" title="${escapeHtml(t("docker.updateAvailable"))}">↻</i>` : ""}
-        <i class="state-dot ${item.health}" title="${escapeHtml(t(`health.${item.health}`))}"></i>
-      </span></div>
-      <small><b>${item.running}/${item.total}</b> ${t("common.containers")} · ${t(`health.${item.health}`)}</small>
-    </div>`;
-  }).join("");
+    <button class="stack-row" data-jump="docker">
+      <span><i class="stack-cube">⬡</i><b>${escapeHtml(item.name)}</b>${updateAvailable ? `<i class="image-update-badge">↻</i>` : ""}</span>
+      <span class="stack-state"><i class="state-dot ${item.health}"></i>${escapeHtml(t(`health.${item.health}`))}</span>
+      <strong>${item.running} / ${item.total}</strong>
+    </button>`;
+  }).join("")}`;
 }
 
 function renderContainers(docker) {
@@ -260,8 +254,16 @@ function render(data) {
   overview = data;
   const system = data.system, docker = data.docker;
   $("#version").textContent = `v${data.version} · latest`;
-  $("#distro-name").textContent = system.distro.name.toUpperCase();
+  const brandNames = {
+    ubuntu: "UBUNTU", debian: "DEBIAN", fedora: "FEDORA", arch: "ARCH",
+    manjaro: "MANJARO", linuxmint: "MINT", opensuse: "OPENSUSE",
+    "opensuse-tumbleweed": "OPENSUSE", rocky: "ROCKY", rhel: "RHEL",
+    almalinux: "ALMALINUX", unraid: "UNRAID"
+  };
+  $("#distro-name").textContent = brandNames[system.distro.id] || "LINUX";
+  $("#distro-logo").style.display = "block";
   $("#distro-logo").src = `https://cdn.simpleicons.org/${encodeURIComponent(system.distro.icon)}/${system.distro.color.replace("#", "")}`;
+  $("#hero-distro-logo").src = $("#distro-logo").src;
   document.documentElement.style.setProperty("--brand", system.distro.color);
   if (!sshSocket || sshSocket.readyState !== WebSocket.OPEN) {
     $("#terminal-title").textContent = `${system.distro.id}-control@${system.hostname}:~`;
@@ -278,6 +280,14 @@ function render(data) {
   $("#ram-sub").textContent = `${bytes(system.memory.used)} ${t("common.of")} ${bytes(system.memory.total)}`;
   $("#ram-ring-value").textContent = Math.round(system.memory.percent);
   $("#ram-ring").style.setProperty("--value", system.memory.percent);
+  metricHistory.cpu.push(system.cpu.percent);
+  metricHistory.memory.push(system.memory.percent);
+  metricHistory.cpu = metricHistory.cpu.slice(-30);
+  metricHistory.memory = metricHistory.memory.slice(-30);
+  const percentPoints = values => Array(30 - values.length).fill(0).concat(values)
+    .map((value, index) => `${index * 120 / 29},${32 - value / 100 * 29}`).join(" ");
+  $("#cpu-line").setAttribute("points", percentPoints(metricHistory.cpu));
+  $("#ram-line").setAttribute("points", percentPoints(metricHistory.memory));
   networkHistory.down.push(system.network.down);
   networkHistory.up.push(system.network.up);
   networkHistory.down = networkHistory.down.slice(-30);
@@ -294,15 +304,39 @@ function render(data) {
   $("#network-interface").textContent = system.network.interfaces.join(", ") || "–";
   $("#docker-value").textContent = docker.available ? `${docker.stacks.length} ${t("docker.stacks")}` : "Offline";
   $("#docker-sub").textContent = docker.available ? `${docker.stacks.reduce((sum, stack) => sum + stack.running, 0)}/${docker.stacks.reduce((sum, stack) => sum + stack.total, 0)} ${t("common.containers")} · Docker ${docker.version}` : docker.error;
-  $(".health-dot").className = `health-dot ${docker.available ? docker.health || "healthy" : "unhealthy"}`;
+  const dockerTotal = docker.available ? docker.stacks.reduce((sum, stack) => sum + stack.total, 0) : 0;
+  const dockerRunning = docker.available ? docker.stacks.reduce((sum, stack) => sum + stack.running, 0) : 0;
+  const dockerPercent = dockerTotal ? Math.round(dockerRunning / dockerTotal * 100) : 0;
+  $("#docker-ring").style.setProperty("--value", dockerPercent);
+  $("#docker-ring-value").textContent = dockerPercent;
   $("#architecture").textContent = system.architecture;
   $("#cores").textContent = system.cpu.cores;
-  $("#interfaces").textContent = system.network.interfaces.join(", ") || "–";
-  $("#dashboard-uptime").textContent = duration(data.dashboardUptime);
+  $("#hero-architecture").textContent = system.architecture;
+  $("#load-average").textContent = system.load.join("  ");
+  $("#process-count").textContent = system.processCount ?? "–";
+  const root = system.rootFilesystem || {};
+  $("#root-usage").textContent = `${root.percent || 0}%`;
+  $("#root-usage-sub").textContent = `${bytes(root.used || 0)} / ${bytes(root.total || 0)}`;
+  const swapPercent = system.memory.swapTotal ? Math.round(system.memory.swapUsed / system.memory.swapTotal * 100) : 0;
+  $("#swap-usage").textContent = `${swapPercent}%`;
+  $("#swap-usage-sub").textContent = `${bytes(system.memory.swapUsed)} / ${bytes(system.memory.swapTotal)}`;
+  const diskStates = system.disks.map(disk => disk.health);
+  const health = !docker.available || docker.health === "unhealthy" || diskStates.includes("critical")
+    ? "critical" : docker.health === "warning" || diskStates.includes("warning") ? "warning" : "healthy";
+  const healthText = health === "healthy" ? t("health.operational") : health === "warning" ? t("health.warnings") : t("health.attention");
+  $("#global-health").className = `global-health ${health}`;
+  $("#global-health-label").textContent = healthText;
+  $("#hero-health").textContent = health === "healthy" ? "Healthy" : health === "warning" ? "Warning" : "Critical";
   $("#container-preview").classList.remove("skeleton-block");
   $("#container-preview").innerHTML = docker.available ? stackMini(docker.stacks) : `<div class="empty-state">${escapeHtml(docker.error)}</div>`;
+  $("#container-preview").onclick = event => {
+    if (event.target.closest("[data-jump]")) setPage("docker");
+  };
   $("#storage-preview").classList.remove("skeleton-block");
   $("#storage-preview").innerHTML = storageRows(data.storage);
+  $("#storage-preview").onclick = event => {
+    if (event.target.closest("[data-jump]")) setPage("storage");
+  };
   $("#temperatures").innerHTML = system.disks.length
     ? system.disks.map(disk => `<div class="temp-row">
         <i class="disk-health ${disk.health}" title="${escapeHtml(t(`health.${disk.health}`))}"></i>
@@ -423,6 +457,10 @@ async function loadShares(share = null, path = "") {
     if (!response.ok) throw new Error(data.error || "Freigaben konnten nicht geladen werden");
     selectedShare = data.selected ?? share;
     selectedPath = data.relative || "";
+    if (data.selected === undefined && data.shares.length) {
+      await loadShares(data.shares[0].id, "");
+      return;
+    }
     $("#new-folder").disabled = data.selected === undefined;
     $("#new-file").disabled = data.selected === undefined;
     $("#share-list").classList.remove("loading");
@@ -441,6 +479,13 @@ async function loadShares(share = null, path = "") {
 function renderFiles(data) {
   if (data.selected === undefined) return;
   const share = data.shares.find(item => item.id === Number(data.selected));
+  const used = Math.max(0, (share?.total || 0) - (share?.free || 0));
+  const percent = share?.total ? Math.round(used / share.total * 100) : 0;
+  $("#browser-root-name").textContent = share?.name || "Unknown location";
+  $("#browser-root-protocol").textContent = share?.protocol || "–";
+  $("#browser-root-capacity").textContent = share?.total ? `${bytes(used)} ${t("common.usedOf")} ${bytes(share.total)}` : t("browser.capacityUnavailable");
+  $("#browser-root-percent").textContent = share?.total ? `${percent}%` : "–";
+  $("#browser-root-bar").style.width = `${percent}%`;
   const segments = (data.relative || "").split("/").filter(Boolean);
   let accumulated = "";
   const crumbs = [`<button data-browse-path="">${escapeHtml(share?.name || "Freigabe")}</button>`];
@@ -466,9 +511,9 @@ function renderFiles(data) {
           : `<button data-edit-path="${escapeHtml(nextPath)}">${escapeHtml(item.name)}</button>`}
       </div>
       <span class="file-meta owner">${escapeHtml(item.owner)}<small>${escapeHtml(item.group)}</small></span>
-      <span class="file-permissions" title="${escapeHtml(item.mode)}">${escapeHtml(item.permissions)}</span>
+      <span class="file-permissions" title="${escapeHtml(item.mode)}">${escapeHtml(item.permissions)} <small>(${escapeHtml(item.mode)})</small></span>
       <span class="file-meta">${item.type === "directory" ? t("common.folder") : bytes(item.size)}</span>
-      <span class="file-meta modified">${new Date(item.modified * 1000).toLocaleString("de-DE", {dateStyle: "short", timeStyle: "short"})}</span>
+      <span class="file-meta modified">${new Date(item.modified * 1000).toLocaleString(currentLanguage, {dateStyle: "medium", timeStyle: "short"})}</span>
       <span class="file-actions">
         ${item.type === "file" ? `<button class="file-action" data-edit-path="${escapeHtml(nextPath)}" title="${escapeHtml(t("common.edit"))}">✎</button>` : ""}
         <button class="file-action danger" data-delete-path="${escapeHtml(nextPath)}" data-delete-name="${escapeHtml(item.name)}" title="${escapeHtml(t("common.delete"))}">⌫</button>
@@ -530,6 +575,7 @@ function openDeleteDialog(path, name) {
 }
 
 $("#new-file").addEventListener("click", openNewFileDialog);
+$("#browser-refresh").addEventListener("click", () => loadShares(selectedShare, selectedPath));
 $("#file-content").addEventListener("keydown", event => {
   if (event.key !== "Tab") return;
   event.preventDefault();
@@ -920,6 +966,7 @@ async function bootstrap() {
     $("#account-username").value = sessionInfo.username || "";
     $("#ssh-host").value = `${sessionInfo.sshHost}:${sessionInfo.sshPort}`;
     applyLanguage(currentLanguage);
+    setPage(location.hash.slice(1) || "overview");
     loadOverview();
     loadDockerUpdates();
     setInterval(loadVersionCheck, 15 * 60 * 1000);

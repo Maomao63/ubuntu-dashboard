@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
 # Deliberately image-owned: old Compose files must not be able to override the UI version.
-VERSION = "1.11.0"
+VERSION = "1.12.0"
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 ACCOUNT_FILE = Path(os.getenv("ACCOUNT_FILE", "/data/account.json"))
@@ -430,6 +430,10 @@ def system_info():
         "rocky": ("rockylinux", "#10B981"),
     }
     icon, color = distro_icons.get(distro_id, ("linux", "#FCC624"))
+    try:
+        process_count = sum(1 for entry in host_path("/proc").iterdir() if entry.name.isdigit())
+    except OSError:
+        process_count = 0
     return {
         "hostname": read_text(host_path("/etc/hostname"), socket.gethostname()).strip(),
         "os": os_release.get("PRETTY_NAME", "Ubuntu Server"),
@@ -443,6 +447,8 @@ def system_info():
         "architecture": platform.machine(),
         "uptime": uptime,
         "load": load,
+        "processCount": process_count,
+        "rootFilesystem": filesystem_usage("/"),
         "cpu": {
             "percent": cpu_percent,
             "model": next((line.split(":", 1)[1].strip() for line in
