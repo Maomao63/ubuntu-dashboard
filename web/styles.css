@@ -290,12 +290,7 @@ tbody tr:hover { background: #141920; }
 .file-icon { width: 25px; color: #85909c; font-size: 15px; text-align: center; }
 .file-icon.folder { color: #e7b54d; }
 .file-meta { color: var(--muted); }
-.account-button {
-  border: 1px solid var(--border); border-radius: 8px; background: #11161c; color: #9ba5b2;
-  padding: 7px 10px; cursor: pointer; font: 600 9px/1 inherit;
-}
-.account-button:hover { color: white; border-color: #46505d; }
-.terminal-panel { min-height: min(720px, calc(100vh - 190px)); display: flex; flex-direction: column; background: #090c10; }
+.terminal-panel { display: flex; flex-direction: column; background: #090c10; overflow: hidden; }
 .terminal-head {
   height: 46px; display: flex; align-items: center; gap: 12px; padding: 0 14px;
   border-bottom: 1px solid var(--border); background: #10141a;
@@ -305,31 +300,31 @@ tbody tr:hover { background: #141920; }
 .terminal-head > span i:nth-child(2) { background: #e8b64b; }
 .terminal-head > span i:nth-child(3) { background: #43d17a; }
 .terminal-head strong { flex: 1; color: #8f98a4; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
-.ssh-terminal-wrap { position: relative; flex: 1; min-height: 530px; }
+.ssh-terminal-wrap { position: relative; height: clamp(360px, 48vh, 560px); }
 #ssh-terminal { position: absolute; inset: 14px; }
 #ssh-terminal .xterm { height: 100%; }
-.ssh-login-card {
-  position: absolute; z-index: 5; width: min(390px, calc(100% - 32px)); left: 50%; top: 50%;
-  transform: translate(-50%, -50%); display: grid; gap: 12px; padding: 26px;
-  border: 1px solid #2c3540; border-radius: 14px; background: #10151cf2;
-  box-shadow: 0 25px 80px #000c; backdrop-filter: blur(14px);
+.ssh-login-panel {
+  display: grid; gap: 15px; padding: 20px; border-top: 1px solid var(--border);
+  background: linear-gradient(110deg, #121820, #0e1319);
 }
-.ssh-login-card.hidden { display: none; }
+.ssh-login-panel.hidden { display: none; }
+.ssh-login-copy { display: flex; align-items: center; gap: 14px; }
 .ssh-login-icon { color: var(--brand); font: 700 20px ui-monospace, monospace; }
-.ssh-login-card h3 { margin: 0; font-size: 16px; color: #eef1f5; }
-.ssh-login-card p { margin: -4px 0 3px; color: var(--muted); font-size: 10px; line-height: 1.6; }
-.ssh-login-card label { display: grid; gap: 6px; color: #9ca6b2; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
-.ssh-login-card input {
+.ssh-login-panel h3 { margin: 0 0 3px; font-size: 13px; color: #eef1f5; }
+.ssh-login-panel p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.ssh-fields { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px; align-items: end; }
+.ssh-login-panel label { display: grid; gap: 6px; color: #9ca6b2; font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
+.ssh-login-panel input {
   width: 100%; border: 1px solid #303945; border-radius: 8px; outline: 0;
-  background: #090d12; color: white; padding: 11px 12px; font: 12px ui-monospace, monospace;
+  height: 38px; background: #090d12; color: white; padding: 0 11px; font: 11px ui-monospace, monospace;
 }
-.ssh-login-card input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 16%, transparent); }
-.ssh-login-card input:disabled { color: #6e7782; }
-.ssh-login-card button {
-  border: 0; border-radius: 8px; background: var(--brand); color: white; padding: 12px;
-  cursor: pointer; font-weight: 700; margin-top: 3px;
+.ssh-login-panel input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 16%, transparent); }
+.ssh-login-panel input:disabled { color: #6e7782; }
+.ssh-login-panel button {
+  height: 38px; border: 0; border-radius: 8px; background: var(--brand); color: white; padding: 0 16px;
+  cursor: pointer; font-weight: 700; white-space: nowrap;
 }
-.ssh-login-card button:disabled { opacity: .55; cursor: wait; }
+.ssh-login-panel button:disabled { opacity: .55; cursor: wait; }
 #ssh-error { min-height: 14px; color: var(--danger); font-size: 9px; line-height: 1.45; }
 .ssh-status { display: inline-flex; align-items: center; gap: 7px; color: #747e8a; font-size: 9px; letter-spacing: .08em; }
 .ssh-status i { width: 7px; height: 7px; border-radius: 50%; background: #59616b; }
@@ -337,6 +332,30 @@ tbody tr:hover { background: #141920; }
 .ssh-status.connecting i { background: #e5b64b; animation: livePulse 1s infinite; }
 .ssh-status.connected { color: var(--green); }
 .ssh-status.connected i { background: var(--green); box-shadow: 0 0 10px #43d17a80; }
+.settings-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(280px, .75fr); gap: 14px; max-width: 980px; }
+.settings-card, .security-card { padding: 25px; }
+.settings-card-head { display: flex; align-items: center; gap: 13px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.settings-card-head small, .settings-card-head strong { display: block; }
+.settings-card-head small { color: var(--muted); font-size: 8px; letter-spacing: .12em; margin-bottom: 4px; }
+.settings-card-head strong { font-size: 14px; }
+.settings-avatar { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; color: white; background: var(--brand); font-weight: 800; box-shadow: 0 10px 25px color-mix(in srgb, var(--brand) 25%, transparent); }
+#account-form { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; padding-top: 22px; }
+#account-form label { display: grid; gap: 7px; color: #929ca8; font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
+#account-form label:first-child, #account-form label:nth-child(2) { grid-column: span 2; }
+#account-form input { height: 42px; border: 1px solid #303844; border-radius: 8px; background: #0b0f14; color: white; padding: 0 12px; outline: 0; }
+#account-form input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent); }
+.password-hint { color: var(--muted); font-size: 9px; }
+#account-error { min-height: 14px; color: var(--danger); font-size: 9px; text-align: right; }
+.settings-primary, .settings-danger { border-radius: 8px; cursor: pointer; font-weight: 700; }
+.settings-primary { grid-column: span 2; height: 42px; border: 0; background: var(--brand); color: white; }
+.security-card { align-self: start; }
+.security-icon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; background: #173024; color: var(--green); font-size: 22px; }
+.security-card h3 { margin: 18px 0 7px; font-size: 15px; }
+.security-card > p { color: var(--muted); font-size: 10px; line-height: 1.65; }
+.security-card dl { margin: 22px 0; }
+.security-card dl div { display: flex; justify-content: space-between; padding: 11px 0; border-bottom: 1px solid var(--border); font-size: 9px; }
+.security-card dt { color: #8e98a4; }.security-card dd { margin: 0; color: var(--green); font-size: 8px; letter-spacing: .08em; }
+.settings-danger { width: 100%; height: 40px; border: 1px solid #5b2f34; background: #2a171b; color: #f08087; }
 .loading { padding: 30px; color: var(--muted); text-align: center; font-size: 11px; }
 .log-panel { padding: 0; }
 pre { margin: 0; padding: 20px; max-height: calc(100vh - 220px); overflow: auto; color: #aeb6c2; font: 10px/1.8 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
@@ -363,6 +382,8 @@ pre { margin: 0; padding: 20px; max-height: calc(100vh - 220px); overflow: auto;
   .metrics { grid-template-columns: repeat(2, 1fr); }
   .dashboard-grid { grid-template-columns: repeat(2, 1fr); }
   .span-2 { grid-column: span 2; }
+  .ssh-fields { grid-template-columns: 1fr 1fr; }
+  .settings-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 760px) {
   :root { --sidebar: 220px; }
@@ -386,6 +407,9 @@ pre { margin: 0; padding: 20px; max-height: calc(100vh - 220px); overflow: auto;
   .span-2 { grid-column: auto; }
   .container-preview { grid-template-columns: repeat(2, 1fr); }
   .section-intro { align-items: flex-start; gap: 16px; flex-direction: column; }
+  .ssh-fields { grid-template-columns: 1fr; }
+  #account-form { grid-template-columns: 1fr; }
+  #account-form label:first-child, #account-form label:nth-child(2), .settings-primary { grid-column: auto; }
 }
 @media (max-width: 560px) {
   .live-status { display: none; }

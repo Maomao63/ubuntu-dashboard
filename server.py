@@ -24,9 +24,10 @@ from urllib.parse import parse_qs, unquote, urlparse
 ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
-VERSION = os.getenv("APP_VERSION", "1.4.0")
+VERSION = os.getenv("APP_VERSION", "1.5.0")
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
+ACCOUNT_FILE = Path(os.getenv("ACCOUNT_FILE", "/data/account.json"))
 ALLOW_ACTIONS = os.getenv("ALLOW_DOCKER_ACTIONS", "true").lower() == "true"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 SESSION_TTL = int(os.getenv("SESSION_TTL", "43200"))
@@ -37,6 +38,7 @@ _sample = {"at": 0, "cpu": None, "net": None}
 _cache = {}
 _sessions = {}
 _login_attempts = {}
+_account = None
 
 
 def read_text(path, default=""):
@@ -81,6 +83,60 @@ def cookie_value(header, name):
         if key == name:
             return value
     return ""
+
+
+def password_record(username, password):
+    salt = secrets.token_bytes(24)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 310000)
+    return {
+        "username": username,
+        "salt": base64.b64encode(salt).decode(),
+        "passwordHash": base64.b64encode(digest).decode(),
+    }
+
+
+def save_account(account):
+    ACCOUNT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temporary = ACCOUNT_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps(account))
+    os.chmod(temporary, 0o600)
+    temporary.replace(ACCOUNT_FILE)
+
+
+def load_account():
+    try:
+        stored = json.loads(ACCOUNT_FILE.read_text())
+        if stored.get("username") and stored.get("salt") and stored.get("passwordHash"):
+            return stored
+    except (OSError, ValueError, json.JSONDecodeError):
+        pass
+    if APP_USER and APP_PASSWORD:
+        account = password_record(APP_USER, APP_PASSWORD)
+        try:
+            save_account(account)
+        except OSError as exc:
+            print(f"[security] Account storage is not persistent: {exc}")
+        return account
+    return None
+
+
+def account_configured():
+    return _account is not None
+
+
+def verify_account(username, password):
+    if not _account:
+        return False
+    try:
+        salt = base64.b64decode(_account["salt"])
+        expected = base64.b64decode(_account["passwordHash"])
+        actual = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 310000)
+        return hmac.compare_digest(username, _account["username"]) and hmac.compare_digest(actual, expected)
+    except (KeyError, ValueError):
+        return False
+
+
+_account = load_account()
 
 
 def recv_exact(sock, length):
@@ -644,7 +700,7 @@ class Handler(BaseHTTPRequestHandler):
         print(f"[web] {self.address_string()} {fmt % args}")
 
     def current_session(self):
-        if not APP_USER or not APP_PASSWORD:
+        if not account_configured():
             return {"username": "local", "csrf": "", "auth": "open"}
         token = cookie_value(self.headers.get("Cookie"), "dashboard_session")
         session = _sessions.get(token)
@@ -659,7 +715,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def csrf_valid(self, session):
         return (
-            not APP_USER
+            not account_configured()
             or session.get("auth") == "open"
             or hmac.compare_digest(self.headers.get("X-CSRF-Token", ""), session.get("csrf", "invalid"))
         )
@@ -701,7 +757,7 @@ class Handler(BaseHTTPRequestHandler):
                 "authenticated": bool(session),
                 "username": session.get("username") if session else None,
                 "csrf": session.get("csrf", "") if session else "",
-                "authRequired": bool(APP_USER and APP_PASSWORD),
+                "authRequired": account_configured(),
                 "sshHost": SSH_HOST,
                 "sshPort": SSH_PORT,
             }, 200 if session else 401)
@@ -731,6 +787,11 @@ class Handler(BaseHTTPRequestHandler):
                 "system": system_info(),
                 "docker": cached("docker", 1.5, docker_info),
                 "storage": cached("storage", 8, storage_info),
+            })
+        elif path == "/api/account":
+            self.send_json({
+                "username": session.get("username", "local"),
+                "persistent": account_configured() and ACCOUNT_FILE.is_file(),
             })
         elif path == "/api/processes":
             self.send_json({"processes": process_info()})
@@ -768,6 +829,9 @@ class Handler(BaseHTTPRequestHandler):
             if COOKIE_SECURE:
                 cookie += "; Secure"
             self.send_json({"ok": True}, headers={"Set-Cookie": cookie})
+            return
+        if path == "/api/account":
+            self.handle_account_update(session)
             return
         if path == "/api/cli":
             try:
@@ -808,12 +872,8 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError):
             self.send_json({"error": "Invalid request"}, 400)
             return
-        valid = (
-            bool(APP_USER and APP_PASSWORD)
-            and hmac.compare_digest(username, APP_USER)
-            and hmac.compare_digest(password, APP_PASSWORD)
-        )
-        if not APP_USER or not APP_PASSWORD:
+        valid = verify_account(username, password)
+        if not account_configured():
             valid, username = True, "local"
         if not valid:
             attempts.append(now)
@@ -834,6 +894,44 @@ class Handler(BaseHTTPRequestHandler):
             "username": username,
             "csrf": session["csrf"],
         }, headers={"Set-Cookie": cookie})
+
+    def handle_account_update(self, session):
+        global _account
+        try:
+            length = min(int(self.headers.get("Content-Length", "0")), 8192)
+            payload = json.loads(self.rfile.read(length) or b"{}")
+            username = str(payload.get("username", "")).strip()
+            current_password = str(payload.get("currentPassword", ""))
+            new_password = str(payload.get("newPassword", ""))
+        except (ValueError, json.JSONDecodeError):
+            self.send_json({"error": "Invalid request"}, 400)
+            return
+        if not re.fullmatch(r"[A-Za-z0-9_.@-]{2,64}", username):
+            self.send_json({"error": "Username must contain 2–64 valid characters."}, 400)
+            return
+        if account_configured() and not verify_account(_account["username"], current_password):
+            self.send_json({"error": "Current password is incorrect."}, 403)
+            return
+        if len(new_password) < 12:
+            self.send_json({"error": "The new password must contain at least 12 characters."}, 400)
+            return
+        updated = password_record(username, new_password)
+        try:
+            save_account(updated)
+        except OSError as exc:
+            self.send_json({"error": f"Account could not be saved: {exc}"}, 500)
+            return
+        _account = updated
+        token = cookie_value(self.headers.get("Cookie"), "dashboard_session")
+        _sessions.clear()
+        session.update({
+            "username": username,
+            "expires": time.time() + SESSION_TTL,
+            "csrf": secrets.token_urlsafe(24),
+            "auth": "session",
+        })
+        _sessions[token] = session
+        self.send_json({"ok": True, "username": username, "csrf": session["csrf"]})
 
     def handle_ssh_websocket(self):
         session = self.current_session()
@@ -889,6 +987,7 @@ class Handler(BaseHTTPRequestHandler):
                 "-o", "PubkeyAuthentication=no",
                 "-o", "StrictHostKeyChecking=accept-new",
                 "-o", "UserKnownHostsFile=/tmp/ssh_known_hosts",
+                "-o", "ConnectTimeout=10",
                 "-o", "ServerAliveInterval=30",
                 "-o", "ServerAliveCountMax=3",
                 f"{username}@{SSH_HOST}",
@@ -968,7 +1067,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-cache" if target.suffix == ".html" else "public, max-age=3600")
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         self.security_headers()
         self.end_headers()
         self.wfile.write(data)

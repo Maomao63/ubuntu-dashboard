@@ -89,6 +89,7 @@ function setPage(name) {
   if (name === "processes") loadProcesses();
   if (name === "logs") loadLogs();
   if (name === "shares") loadShares(selectedShare, selectedPath);
+  if (name === "settings") loadAccountSettings();
   if (name === "cli") {
     requestAnimationFrame(() => {
       sshFit?.fit();
@@ -529,6 +530,59 @@ $("#ssh-login").addEventListener("submit", event => {
 });
 
 $("#terminal-disconnect").addEventListener("click", () => closeSsh(true));
+
+async function loadAccountSettings() {
+  try {
+    const response = await fetch("/api/account");
+    if (!response.ok) throw new Error("Account could not be loaded.");
+    const account = await response.json();
+    $("#account-username").value = account.username || "";
+    $("#settings-account-name").textContent = account.username || "Account";
+    $("#settings-avatar").textContent = (account.username || "A").charAt(0).toUpperCase();
+  } catch (error) {
+    $("#account-error").textContent = error.message;
+  }
+}
+
+$("#account-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
+  const newPassword = $("#account-new-password").value;
+  const confirmation = $("#account-confirm-password").value;
+  $("#account-error").textContent = "";
+  if (newPassword !== confirmation) {
+    $("#account-error").textContent = "The new passwords do not match.";
+    return;
+  }
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/account", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken},
+      body: JSON.stringify({
+        username: $("#account-username").value.trim(),
+        currentPassword: $("#account-current-password").value,
+        newPassword
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Account could not be saved.");
+    csrfToken = data.csrf;
+    sessionInfo.username = data.username;
+    $("#settings-account-name").textContent = data.username;
+    $("#settings-avatar").textContent = data.username.charAt(0).toUpperCase();
+    $("#account-current-password").value = "";
+    $("#account-new-password").value = "";
+    $("#account-confirm-password").value = "";
+    toast("Account updated. Other sessions were signed out.");
+  } catch (error) {
+    $("#account-error").textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
 $("#logout").addEventListener("click", async () => {
   closeSsh(false);
   await fetch("/api/logout", {method: "POST", headers: {"X-CSRF-Token": csrfToken}});
@@ -550,11 +604,17 @@ async function bootstrap() {
     }
     sessionInfo = await response.json();
     csrfToken = sessionInfo.csrf || "";
-    $("#account-name").textContent = sessionInfo.username || "Account";
+    $("#settings-account-name").textContent = sessionInfo.username || "Account";
+    $("#settings-avatar").textContent = (sessionInfo.username || "A").charAt(0).toUpperCase();
+    $("#account-username").value = sessionInfo.username || "";
     $("#ssh-host").value = `${sessionInfo.sshHost}:${sessionInfo.sshPort}`;
-    setupSshTerminal();
     applyLanguage(currentLanguage);
     loadOverview();
+    try {
+      setupSshTerminal();
+    } catch (terminalError) {
+      $("#ssh-error").textContent = `Terminal unavailable: ${terminalError.message}`;
+    }
   } catch {
     location.replace("/login.html");
   }

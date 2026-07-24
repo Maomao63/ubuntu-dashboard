@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0e13">
   <title>Ubuntu Server Dashboard</title>
-  <link rel="stylesheet" href="/vendor/xterm.css">
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/vendor/xterm.css?v=1.5.0">
+  <link rel="stylesheet" href="/styles.css?v=1.5.0">
 </head>
 <body>
   <aside class="sidebar">
@@ -22,6 +22,7 @@
       <button class="nav" data-page="processes"><svg viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg><span data-i18n="nav.processes">Processes</span></button>
       <button class="nav" data-page="logs"><svg viewBox="0 0 24 24"><path d="M5 3h14v18H5zM8 8h8M8 12h8M8 16h5"/></svg><span data-i18n="nav.logs">System logs</span></button>
       <button class="nav" data-page="cli"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9l3 3-3 3M13 15h4"/></svg><span data-i18n="nav.cli">CLI</span></button>
+      <button class="nav" data-page="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg><span data-i18n="nav.settings">Settings</span></button>
     </nav>
     <div class="side-foot">
       <span class="pulse"></span> <span data-i18n="status.connected">Live connected</span>
@@ -50,7 +51,6 @@
           <b data-i18n="layout.label">Layout</b>
         </label>
         <span class="version-badge" id="version-badge">v– · latest</span>
-        <button class="account-button" id="logout" title="Sign out"><span id="account-name">Account</span> ↗</button>
         <select id="language-select" class="language-select" aria-label="Language">
           <option value="en">EN · English</option>
           <option value="de">DE · Deutsch</option>
@@ -197,27 +197,57 @@
           <strong id="terminal-title">dashboard@server:~</strong>
           <button class="text-button" id="terminal-disconnect" data-i18n="cli.disconnect" disabled>Disconnect</button>
         </div>
-        <div class="ssh-terminal-wrap">
-          <div id="ssh-terminal" aria-label="SSH terminal"></div>
-          <form id="ssh-login" class="ssh-login-card" autocomplete="off">
+        <div class="ssh-terminal-wrap"><div id="ssh-terminal" aria-label="SSH terminal"></div></div>
+        <form id="ssh-login" class="ssh-login-panel" autocomplete="off">
+          <div class="ssh-login-copy">
             <span class="ssh-login-icon">&gt;_</span>
-            <h3 data-i18n="cli.connectTitle">Connect to the server</h3>
+            <div><h3 data-i18n="cli.connectTitle">Connect to the server</h3>
             <p data-i18n="cli.credentials">Use your host SSH account. The password is used only for this connection.</p>
+            </div>
+          </div>
+          <div class="ssh-fields">
             <label><span data-i18n="cli.target">SSH target</span><input id="ssh-host" value="host.docker.internal:22" disabled></label>
             <label><span data-i18n="cli.username">SSH username</span><input id="ssh-username" required autocomplete="username" placeholder="e.g. ubuntu"></label>
             <label><span data-i18n="cli.password">SSH password</span><input id="ssh-password" required type="password" autocomplete="current-password"></label>
             <button type="submit" data-i18n="cli.connect">Start SSH session</button>
-            <small id="ssh-error" role="alert"></small>
+          </div>
+          <small id="ssh-error" role="alert"></small>
+        </form>
+      </div>
+    </section>
+
+    <section class="page" id="page-settings">
+      <div class="section-intro">
+        <div><h2 data-i18n="settings.title">Account settings</h2><p data-i18n="settings.description">Manage access to this dashboard.</p></div>
+      </div>
+      <div class="settings-grid">
+        <article class="panel settings-card">
+          <div class="settings-card-head"><span class="settings-avatar" id="settings-avatar">A</span><div><small data-i18n="settings.signedIn">SIGNED IN AS</small><strong id="settings-account-name">Account</strong></div></div>
+          <form id="account-form" autocomplete="off">
+            <label><span data-i18n="settings.username">Username</span><input id="account-username" required autocomplete="username"></label>
+            <label><span data-i18n="settings.currentPassword">Current password</span><input id="account-current-password" required type="password" autocomplete="current-password"></label>
+            <label><span data-i18n="settings.newPassword">New password</span><input id="account-new-password" required type="password" minlength="12" autocomplete="new-password"></label>
+            <label><span data-i18n="settings.confirmPassword">Confirm new password</span><input id="account-confirm-password" required type="password" minlength="12" autocomplete="new-password"></label>
+            <div class="password-hint" data-i18n="settings.passwordHint">Use at least 12 characters.</div>
+            <small id="account-error" role="alert"></small>
+            <button class="settings-primary" type="submit" data-i18n="settings.save">Save account</button>
           </form>
-        </div>
+        </article>
+        <article class="panel security-card">
+          <span class="security-icon">⌾</span>
+          <h3 data-i18n="settings.security">Session security</h3>
+          <p data-i18n="settings.securityDescription">Changing the account signs out every other active browser session.</p>
+          <dl><div><dt>HttpOnly cookie</dt><dd>ACTIVE</dd></div><div><dt>CSRF protection</dt><dd>ACTIVE</dd></div><div><dt>Login rate limit</dt><dd>ACTIVE</dd></div></dl>
+          <button id="logout" class="settings-danger" data-i18n="settings.logout">Sign out</button>
+        </article>
       </div>
     </section>
   </main>
 
   <div id="toast" role="status"></div>
-  <script src="/i18n.js"></script>
-  <script src="/vendor/xterm.js"></script>
-  <script src="/vendor/addon-fit.js"></script>
-  <script src="/app.js"></script>
+  <script src="/i18n.js?v=1.5.0"></script>
+  <script src="/vendor/xterm.js?v=1.5.0"></script>
+  <script src="/vendor/addon-fit.js?v=1.5.0"></script>
+  <script src="/app.js?v=1.5.0"></script>
 </body>
 </html>

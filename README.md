@@ -21,6 +21,7 @@ Docker-Container und verwendet ausschließlich die Python-Standardbibliothek.
 - vollständiges interaktives Host-Terminal über eine echte SSH-Sitzung
 - responsives Web-UI für Desktop, Tablet und Smartphone
 - Dashboard-Login mit zeitlich begrenzter Session, CSRF-Schutz und Rate-Limit
+- eigener Settings-Bereich zum Ändern von Benutzername und Passwort
 - Read-only-Dateisystem und Healthcheck im Container
 
 ## Start
@@ -68,6 +69,9 @@ sollte nicht direkt ins Internet gestellt werden. Im Heimnetz mindestens
 einen Reverse Proxy mit HTTPS verwenden und dann `COOKIE_SECURE=true` setzen.
 Der Login erzeugt eine zufällige, nur per HttpOnly-Cookie zugängliche Session,
 prüft schreibende Requests mit einem CSRF-Token und begrenzt Fehlversuche.
+Das erste Konto wird aus `DASHBOARD_USER` und `DASHBOARD_PASSWORD` erstellt.
+Spätere Änderungen im Settings-Tab werden als PBKDF2-Hash im Docker-Volume
+`ubuntu-dashboard-data` gespeichert und bleiben bei Container-Updates erhalten.
 
 Der Host wird unter `/host` nur lesbar eingebunden. Schreibende Aktionen gibt
 es ausschließlich über die drei freigegebenen Docker-Endpunkte. Mit
@@ -97,8 +101,8 @@ anschließend bauen:
 
 ```bash
 docker compose build --pull
-docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.4.0
+docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.5.0
 docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:latest
-docker push ghcr.io/dein-name/ubuntu-dashboard:1.4.0
+docker push ghcr.io/dein-name/ubuntu-dashboard:1.5.0
 docker push ghcr.io/dein-name/ubuntu-dashboard:latest
 ```
