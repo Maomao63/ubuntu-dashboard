@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0e13">
   <title>Ubuntu Server Dashboard</title>
-  <link rel="stylesheet" href="/vendor/xterm.css?v=1.9.0">
-  <link rel="stylesheet" href="/styles.css?v=1.9.0">
+  <link rel="stylesheet" href="/vendor/xterm.css?v=1.10.0">
+  <link rel="stylesheet" href="/styles.css?v=1.10.0">
 </head>
 <body>
   <aside class="sidebar">
@@ -83,7 +83,7 @@
         <article class="metric cyan" data-widget="network">
           <div class="metric-icon">↕</div>
           <div><small data-i18n="overview.network">NETWORK</small><strong id="network-value">0 B/s</strong><span id="network-sub">–</span></div>
-          <div class="spark"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="spark"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
         </article>
         <article class="metric green" data-widget="docker">
           <div class="metric-icon">⬡</div>
@@ -95,7 +95,7 @@
       <div class="dashboard-grid" data-overview-section="details">
         <article class="panel span-2" data-panel-widget="containers">
           <div class="panel-head">
-            <div><span class="panel-icon">⬡</span><h3 data-i18n="panel.containers">Docker containers</h3></div>
+            <div><span class="panel-icon">⬡</span><h3 data-i18n="panel.containers">Docker stacks</h3></div>
             <button class="text-button" data-jump="docker"><span data-i18n="common.showAll">Show all</span> →</button>
           </div>
           <div id="container-preview" class="container-preview skeleton-block"></div>
@@ -283,9 +283,9 @@
   </dialog>
 
   <div id="toast" role="status"></div>
-  <script src="/i18n.js?v=1.9.0"></script>
-  <script src="/vendor/xterm.js?v=1.9.0"></script>
-  <script src="/vendor/addon-fit.js?v=1.9.0"></script>
-  <script src="/app.js?v=1.9.0"></script>
+  <script src="/i18n.js?v=1.10.0"></script>
+  <script src="/vendor/xterm.js?v=1.10.0"></script>
+  <script src="/vendor/addon-fit.js?v=1.10.0"></script>
+  <script src="/app.js?v=1.10.0"></script>
 </body>
 </html>

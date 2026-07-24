@@ -4,7 +4,7 @@ services:
     build:
       context: .
       args:
-        APP_VERSION: "1.9.0"
+        APP_VERSION: "1.10.0"
     container_name: ubuntu-dashboard
     restart: unless-stopped
     privileged: true
@@ -17,6 +17,7 @@ services:
       SHARE_ROOTS: "${SHARE_ROOTS:-}"
       SSH_HOST: "${SSH_HOST:-auto}"
       SSH_PORT: "${SSH_PORT:-22}"
+      NETWORK_INTERFACE: "${NETWORK_INTERFACE:-auto}"
       COOKIE_SECURE: "${COOKIE_SECURE:-false}"
       SESSION_TTL: "${SESSION_TTL:-43200}"
     volumes:

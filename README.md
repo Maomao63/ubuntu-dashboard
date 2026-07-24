@@ -6,9 +6,10 @@ Docker-Container und verwendet ausschließlich die Python-Standardbibliothek.
 
 ## Funktionen
 
-- Live-Werte für CPU, RAM, Uptime und Netzwerk
+- Live-Werte für CPU, RAM, Uptime und den tatsächlichen Traffic der aktiven Netzwerkroute
 - Disk-Temperaturen, Laufwerkszustand und SMART-Health für HDDs, SSDs und NVMe
 - Docker-Container anzeigen, starten, stoppen und neu starten
+- Compose-/Arcane-Stacks in der Übersicht mit zusammengefasstem Grün/Gelb/Rot-Status
 - Docker-Healthstatus in Grün/Gelb/Rot und Registry-Prüfung auf neue Images
 - Unraid-Arrays mit Parity-/Datenlaufwerken und separaten Cache-Pools
 - ZFS-Pools mit VDEVs sowie Linux-md-RAIDs und einzelne Linux-Datenträger
@@ -115,8 +116,8 @@ anschließend bauen:
 
 ```bash
 docker compose build --pull
-docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.9.0
+docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.10.0
 docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:latest
-docker push ghcr.io/dein-name/ubuntu-dashboard:1.9.0
+docker push ghcr.io/dein-name/ubuntu-dashboard:1.10.0
 docker push ghcr.io/dein-name/ubuntu-dashboard:latest
 ```

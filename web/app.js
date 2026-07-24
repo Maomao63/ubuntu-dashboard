@@ -15,6 +15,7 @@ let sshSocket = null;
 let sshTerminal = null;
 let sshFit = null;
 let dockerUpdates = {};
+let networkHistory = [];
 
 function t(key) {
   return window.I18N?.[currentLanguage]?.[key] ?? window.I18N?.en?.[key] ?? key;
@@ -207,16 +208,19 @@ function storageRows(items, limit = items.length) {
     </div>`).join("");
 }
 
-function containerMini(items) {
-  if (!items.length) return `<div class="empty-state">Keine Container vorhanden</div>`;
-  return items.slice(0, 6).map(item => `
-    <div class="container-mini">
+function stackMini(items) {
+  if (!items.length) return `<div class="empty-state">${t("docker.noStacks")}</div>`;
+  return items.map(item => {
+    const updateAvailable = item.containerIds.some(id => dockerUpdates[id]?.updateAvailable);
+    return `
+    <div class="container-mini stack-mini">
       <div><strong>${escapeHtml(item.name)}</strong><span class="container-flags">
-        ${dockerUpdates[item.fullId]?.updateAvailable ? `<i class="image-update-badge" title="${escapeHtml(t("docker.updateAvailable"))}">↻</i>` : ""}
-        <i class="state-dot ${item.health || item.state}" title="${escapeHtml(item.health || item.state)}"></i>
+        ${updateAvailable ? `<i class="image-update-badge" title="${escapeHtml(t("docker.updateAvailable"))}">↻</i>` : ""}
+        <i class="state-dot ${item.health}" title="${escapeHtml(t(`health.${item.health}`))}"></i>
       </span></div>
-      <small>${escapeHtml(item.image)}</small>
-    </div>`).join("");
+      <small><b>${item.running}/${item.total}</b> ${t("common.containers")} · ${t(`health.${item.health}`)}</small>
+    </div>`;
+  }).join("");
 }
 
 function renderContainers(docker) {
@@ -274,17 +278,26 @@ function render(data) {
   $("#ram-sub").textContent = `${bytes(system.memory.used)} ${t("common.of")} ${bytes(system.memory.total)}`;
   $("#ram-ring-value").textContent = Math.round(system.memory.percent);
   $("#ram-ring").style.setProperty("--value", system.memory.percent);
-  $("#network-value").textContent = bytes(system.network.down + system.network.up, true);
-  $("#network-sub").textContent = `↓ ${bytes(system.network.down, true)} · ↑ ${bytes(system.network.up, true)}`;
-  $("#docker-value").textContent = docker.available ? `${docker.containersRunning} ${t("common.active")}` : "Offline";
-  $("#docker-sub").textContent = docker.available ? `${docker.containers.length} ${t("common.containers")} · Docker ${docker.version}` : docker.error;
+  const networkTotal = system.network.down + system.network.up;
+  const sparkBars = $$(".spark i");
+  networkHistory.push(networkTotal);
+  networkHistory = networkHistory.slice(-sparkBars.length);
+  const networkPeak = Math.max(...networkHistory, 1);
+  const paddedHistory = Array(sparkBars.length - networkHistory.length).fill(0).concat(networkHistory);
+  sparkBars.forEach((bar, index) => {
+    bar.style.height = `${Math.max(8, paddedHistory[index] / networkPeak * 100)}%`;
+  });
+  $("#network-value").textContent = bytes(networkTotal, true);
+  $("#network-sub").textContent = `↓ ${bytes(system.network.down, true)} · ↑ ${bytes(system.network.up, true)} · ${system.network.interfaces.join(", ") || "–"}`;
+  $("#docker-value").textContent = docker.available ? `${docker.stacks.length} ${t("docker.stacks")}` : "Offline";
+  $("#docker-sub").textContent = docker.available ? `${docker.stacks.reduce((sum, stack) => sum + stack.running, 0)}/${docker.stacks.reduce((sum, stack) => sum + stack.total, 0)} ${t("common.containers")} · Docker ${docker.version}` : docker.error;
   $(".health-dot").className = `health-dot ${docker.available ? docker.health || "healthy" : "unhealthy"}`;
   $("#architecture").textContent = system.architecture;
   $("#cores").textContent = system.cpu.cores;
   $("#interfaces").textContent = system.network.interfaces.join(", ") || "–";
   $("#dashboard-uptime").textContent = duration(data.dashboardUptime);
   $("#container-preview").classList.remove("skeleton-block");
-  $("#container-preview").innerHTML = docker.available ? containerMini(docker.containers) : `<div class="empty-state">${escapeHtml(docker.error)}</div>`;
+  $("#container-preview").innerHTML = docker.available ? stackMini(docker.stacks) : `<div class="empty-state">${escapeHtml(docker.error)}</div>`;
   $("#storage-preview").classList.remove("skeleton-block");
   $("#storage-preview").innerHTML = storageRows(data.storage);
   $("#temperatures").innerHTML = system.disks.length

@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
 # Deliberately image-owned: old Compose files must not be able to override the UI version.
-VERSION = "1.9.0"
+VERSION = "1.10.0"
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 ACCOUNT_FILE = Path(os.getenv("ACCOUNT_FILE", "/data/account.json"))
@@ -39,6 +39,7 @@ COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 SESSION_TTL = int(os.getenv("SESSION_TTL", "43200"))
 SSH_HOST = os.getenv("SSH_HOST", "auto")
 SSH_PORT = int(os.getenv("SSH_PORT", "22"))
+NETWORK_INTERFACE = os.getenv("NETWORK_INTERFACE", "auto").strip()
 HOST_MOUNTS_FILE = Path(os.getenv("HOST_MOUNTS_FILE", "/host-proc-mounts"))
 STARTED = time.time()
 _sample = {"at": 0, "cpu": None, "net": None}
@@ -248,8 +249,34 @@ def cpu_snapshot():
     return sum(values), idle
 
 
+def monitored_interfaces(available):
+    configured = [name.strip() for name in NETWORK_INTERFACE.split(",") if name.strip()]
+    if configured and configured != ["auto"]:
+        return [name for name in configured if name in available]
+    default_routes = []
+    for line in read_text(host_path("/proc/net/route")).splitlines()[1:]:
+        fields = line.split()
+        if len(fields) < 8 or fields[1] != "00000000":
+            continue
+        try:
+            flags, metric = int(fields[3], 16), int(fields[6])
+        except ValueError:
+            continue
+        if flags & 0x2 and fields[0] in available:
+            default_routes.append((metric, fields[0]))
+    if default_routes:
+        best_metric = min(item[0] for item in default_routes)
+        return sorted({name for metric, name in default_routes if metric == best_metric})
+    physical = [
+        name for name in available
+        if host_path(f"/sys/class/net/{name}/device").exists()
+        and read_text(host_path(f"/sys/class/net/{name}/operstate"), "up").strip() in ("up", "unknown")
+    ]
+    return physical or [name for name in available if name != "lo"]
+
+
 def net_snapshot():
-    result = {}
+    available = {}
     for line in read_text(host_path("/proc/net/dev")).splitlines()[2:]:
         if ":" not in line:
             continue
@@ -257,8 +284,9 @@ def net_snapshot():
         fields = values.split()
         name = name.strip()
         if name != "lo" and len(fields) >= 9:
-            result[name] = (int(fields[0]), int(fields[8]))
-    return result
+            available[name] = (int(fields[0]), int(fields[8]))
+    selected = monitored_interfaces(available)
+    return {name: available[name] for name in selected}
 
 
 def memory_info():
@@ -303,10 +331,9 @@ def system_info():
         if total_delta > 0:
             cpu_percent = round((total_delta - idle_delta) / total_delta * 100, 1)
     if _sample["net"] and elapsed > 0:
-        rates["down"] = max(0, sum(v[0] for v in current_net.values()) -
-                            sum(v[0] for v in _sample["net"].values())) / elapsed
-        rates["up"] = max(0, sum(v[1] for v in current_net.values()) -
-                          sum(v[1] for v in _sample["net"].values())) / elapsed
+        shared = current_net.keys() & _sample["net"].keys()
+        rates["down"] = sum(max(0, current_net[name][0] - _sample["net"][name][0]) for name in shared) / elapsed
+        rates["up"] = sum(max(0, current_net[name][1] - _sample["net"][name][1]) for name in shared) / elapsed
     _sample = {"at": now, "cpu": current_cpu, "net": current_net}
 
     uptime_raw = read_text(host_path("/proc/uptime"), "0").split()
@@ -410,6 +437,7 @@ def docker_info():
         for item in raw:
             state = item.get("State", "unknown")
             status = item.get("Status", "")
+            labels = item.get("Labels") or {}
             status_lower = status.lower()
             if "unhealthy" in status_lower:
                 health = "unhealthy"
@@ -434,6 +462,8 @@ def docker_info():
                 "status": status,
                 "created": item.get("Created", 0),
                 "isSelf": item.get("Id", "").startswith(own_container_id),
+                "stack": labels.get("com.docker.compose.project") or labels.get("com.docker.stack.namespace"),
+                "service": labels.get("com.docker.compose.service") or labels.get("com.docker.swarm.service.name"),
                 "ports": [
                     f"{p.get('PublicPort', p.get('PrivatePort'))}:{p.get('PrivatePort')}/{p.get('Type', 'tcp')}"
                     for p in item.get("Ports", []) if p.get("PrivatePort")
@@ -441,10 +471,38 @@ def docker_info():
             })
         order = {"running": 0, "restarting": 1, "paused": 2, "exited": 3, "dead": 4}
         containers.sort(key=lambda c: (order.get(c["state"], 9), c["name"].lower()))
+        stack_groups = {}
+        for container in containers:
+            if container["stack"]:
+                stack_groups.setdefault(container["stack"], []).append(container)
+        stacks = []
+        for name, members in stack_groups.items():
+            running = sum(member["state"] == "running" for member in members)
+            if running == 0 or any(
+                member["health"] == "unhealthy" or member["state"] == "dead"
+                for member in members
+            ):
+                health = "critical"
+            elif running < len(members) or any(
+                member["health"] == "starting" or member["state"] in ("restarting", "paused")
+                for member in members
+            ):
+                health = "warning"
+            else:
+                health = "healthy"
+            stacks.append({
+                "name": name,
+                "running": running,
+                "total": len(members),
+                "health": health,
+                "containerIds": [member["fullId"] for member in members],
+            })
+        health_order = {"critical": 0, "warning": 1, "healthy": 2}
+        stacks.sort(key=lambda stack: (health_order[stack["health"]], stack["name"].lower()))
         aggregate_health = "unhealthy" if any(
-            container["health"] == "unhealthy" for container in containers
+            stack["health"] == "critical" for stack in stacks
         ) else "starting" if any(
-            container["health"] == "starting" for container in containers
+            stack["health"] == "warning" for stack in stacks
         ) else "healthy"
         return {
             "available": True,
@@ -453,10 +511,11 @@ def docker_info():
             "containersStopped": info.get("ContainersStopped", 0),
             "images": info.get("Images", 0),
             "health": aggregate_health,
+            "stacks": stacks,
             "containers": containers,
         }
     except Exception as exc:
-        return {"available": False, "error": str(exc), "containers": []}
+        return {"available": False, "error": str(exc), "containers": [], "stacks": []}
 
 
 def parse_image_reference(reference):
