@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0e13">
+  <title>Ubuntu Server Dashboard</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="#overview" aria-label="Ubuntu Dashboard">
+      <span class="brand-mark">◉</span>
+      <span><strong>UBUNTU</strong><small>CONTROL</small></span>
+    </a>
+    <nav>
+      <button class="nav active" data-page="overview"><span>⌂</span> Übersicht</button>
+      <button class="nav" data-page="docker"><span>⬡</span> Container</button>
+      <button class="nav" data-page="storage"><span>▤</span> Speicher</button>
+      <button class="nav" data-page="processes"><span>≋</span> Prozesse</button>
+      <button class="nav" data-page="logs"><span>⌁</span> Systemlogs</button>
+    </nav>
+    <div class="side-foot">
+      <span class="pulse"></span> Verbunden
+      <small id="version">Version –</small>
+    </div>
+  </aside>
+
+  <main>
+    <header>
+      <button class="mobile-menu" aria-label="Menü öffnen">☰</button>
+      <div>
+        <p class="eyebrow" id="page-kicker">SYSTEMZENTRALE</p>
+        <h1 id="page-title">Übersicht</h1>
+      </div>
+      <div class="header-actions">
+        <span class="updated" id="updated">Wird geladen…</span>
+        <button class="icon-button" id="refresh" title="Jetzt aktualisieren">↻</button>
+      </div>
+    </header>
+
+    <section class="page active" id="page-overview">
+      <div class="hero">
+        <div>
+          <span class="status-pill"><i></i> SERVER ONLINE</span>
+          <h2 id="hostname">Ubuntu Server</h2>
+          <p><span id="os">Ubuntu</span> · Kernel <span id="kernel">–</span></p>
+        </div>
+        <div class="hero-meta">
+          <div><small>UPTIME</small><strong id="uptime">–</strong></div>
+          <div><small>LOAD</small><strong id="load">–</strong></div>
+        </div>
+      </div>
+
+      <div class="metrics">
+        <article class="metric orange">
+          <div class="metric-icon">◫</div>
+          <div><small>PROZESSOR</small><strong id="cpu-value">0%</strong><span id="cpu-sub">–</span></div>
+          <div class="ring" id="cpu-ring"><span id="cpu-ring-value">0</span></div>
+        </article>
+        <article class="metric violet">
+          <div class="metric-icon">▦</div>
+          <div><small>ARBEITSSPEICHER</small><strong id="ram-value">0%</strong><span id="ram-sub">–</span></div>
+          <div class="ring" id="ram-ring"><span id="ram-ring-value">0</span></div>
+        </article>
+        <article class="metric cyan">
+          <div class="metric-icon">↕</div>
+          <div><small>NETZWERK</small><strong id="network-value">0 B/s</strong><span id="network-sub">–</span></div>
+          <div class="spark"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        </article>
+        <article class="metric green">
+          <div class="metric-icon">⬡</div>
+          <div><small>DOCKER</small><strong id="docker-value">–</strong><span id="docker-sub">–</span></div>
+          <span class="health-dot"></span>
+        </article>
+      </div>
+
+      <div class="dashboard-grid">
+        <article class="panel span-2">
+          <div class="panel-head">
+            <div><span class="panel-icon">⬡</span><h3>Docker Container</h3></div>
+            <button class="text-button" data-jump="docker">Alle anzeigen →</button>
+          </div>
+          <div id="container-preview" class="container-preview skeleton-block"></div>
+        </article>
+        <article class="panel">
+          <div class="panel-head">
+            <div><span class="panel-icon">♨</span><h3>Temperaturen</h3></div>
+            <span class="live-tag">LIVE</span>
+          </div>
+          <div id="temperatures" class="temperature-list empty-state">Keine Sensorwerte</div>
+        </article>
+        <article class="panel span-2">
+          <div class="panel-head">
+            <div><span class="panel-icon">▤</span><h3>Speicher</h3></div>
+            <button class="text-button" data-jump="storage">Details →</button>
+          </div>
+          <div id="storage-preview" class="storage-list skeleton-block"></div>
+        </article>
+        <article class="panel">
+          <div class="panel-head">
+            <div><span class="panel-icon">◎</span><h3>Host-Details</h3></div>
+          </div>
+          <dl class="details">
+            <div><dt>Architektur</dt><dd id="architecture">–</dd></div>
+            <div><dt>CPU-Kerne</dt><dd id="cores">–</dd></div>
+            <div><dt>Interfaces</dt><dd id="interfaces">–</dd></div>
+            <div><dt>Dashboard</dt><dd id="dashboard-uptime">–</dd></div>
+          </dl>
+        </article>
+      </div>
+    </section>
+
+    <section class="page" id="page-docker">
+      <div class="section-intro">
+        <div><h2>Container</h2><p>Alle Docker-Workloads auf diesem Host verwalten.</p></div>
+        <div class="summary-chips" id="docker-summary"></div>
+      </div>
+      <div class="panel table-panel">
+        <div id="container-table"></div>
+      </div>
+    </section>
+
+    <section class="page" id="page-storage">
+      <div class="section-intro"><div><h2>Speicher</h2><p>Eingebundene lokale Laufwerke und Netzwerkfreigaben.</p></div></div>
+      <div id="storage-cards" class="storage-cards"></div>
+    </section>
+
+    <section class="page" id="page-processes">
+      <div class="section-intro"><div><h2>Prozesse</h2><p>Die Prozesse mit dem aktuell größten Speicherbedarf.</p></div></div>
+      <div class="panel table-panel"><div id="process-table" class="loading">Lade Prozesse…</div></div>
+    </section>
+
+    <section class="page" id="page-logs">
+      <div class="section-intro"><div><h2>Systemlogs</h2><p id="log-source">Letzte Host-Ereignisse</p></div></div>
+      <div class="panel log-panel"><pre id="log-output">Lade Logs…</pre></div>
+    </section>
+  </main>
+
+  <div id="toast" role="status"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
