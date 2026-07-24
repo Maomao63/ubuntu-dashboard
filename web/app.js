@@ -17,6 +17,9 @@ let sshFit = null;
 let dockerUpdates = {};
 let hostUpdateCommand = "";
 let pendingHostUpdate = false;
+let hostUpdateRunning = false;
+let sshOutputTail = "";
+const sshTextDecoder = new TextDecoder();
 
 function t(key) {
   return window.I18N?.[currentLanguage]?.[key] ?? window.I18N?.en?.[key] ?? key;
@@ -338,24 +341,46 @@ async function loadVersionCheck() {
   }
 }
 
+function renderHostUpdates(data) {
+  hostUpdateCommand = data.command || "";
+  if (data.count === null) {
+      $("#host-updates").textContent = t("updates.unavailable");
+      $("#host-updates").className = "unknown";
+  } else if (data.count > 0) {
+    $("#host-updates").textContent = `${data.count} ${t("updates.available")}`;
+    $("#host-updates").className = "available";
+  } else {
+    $("#host-updates").textContent = `✓ ${t("updates.current")}`;
+    $("#host-updates").className = "current";
+  }
+}
+
 async function loadHostUpdates() {
   try {
     const response = await fetch("/api/host-updates", {cache: "no-store"});
-    const data = await response.json();
-    hostUpdateCommand = data.command || "";
-    if (data.count === null) {
-      $("#host-updates").textContent = t("updates.unavailable");
-      $("#host-updates").className = "unknown";
-    } else if (data.count > 0) {
-      $("#host-updates").textContent = `${data.count} ${t("updates.available")}`;
-      $("#host-updates").className = "available";
-    } else {
-      $("#host-updates").textContent = t("updates.current");
-      $("#host-updates").className = "current";
-    }
+    renderHostUpdates(await response.json());
   } catch {
     $("#host-updates").textContent = t("updates.unavailable");
     $("#host-updates").className = "unknown";
+  }
+}
+
+async function refreshHostUpdates() {
+  $("#host-updates").textContent = t("updates.rechecking");
+  $("#host-updates").className = "unknown";
+  try {
+    const response = await fetch("/api/host-updates/refresh", {
+      method: "POST",
+      headers: {"X-CSRF-Token": csrfToken}
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Update check failed");
+    renderHostUpdates(data);
+    toast(data.count ? `${data.count} ${t("updates.available")}` : t("updates.current"));
+  } catch (error) {
+    $("#host-updates").textContent = t("updates.unavailable");
+    $("#host-updates").className = "unknown";
+    toast(error.message, true);
   }
 }
 
@@ -373,8 +398,13 @@ async function loadDockerUpdates() {
 function sendPendingHostUpdate() {
   if (!pendingHostUpdate || !hostUpdateCommand || sshSocket?.readyState !== WebSocket.OPEN) return;
   pendingHostUpdate = false;
+  hostUpdateRunning = true;
+  sshOutputTail = "";
   sshTerminal.writeln(`\r\n\x1b[38;5;214m${t("updates.starting")}\x1b[0m`);
-  sshSocket.send(JSON.stringify({type: "input", data: `${hostUpdateCommand}\r`}));
+  sshSocket.send(JSON.stringify({
+    type: "input",
+    data: `${hostUpdateCommand}; printf '\\n__UBUNTU''_DASHBOARD_UPDATE_DONE__:%s\\n' "$?"\r`
+  }));
 }
 
 $("#host-updates").addEventListener("click", () => {
@@ -706,7 +736,17 @@ $("#ssh-login").addEventListener("submit", event => {
   });
   socket.addEventListener("message", event => {
     if (event.data instanceof ArrayBuffer) {
-      sshTerminal.write(new Uint8Array(event.data));
+      const chunk = new Uint8Array(event.data);
+      sshTerminal.write(chunk);
+      if (hostUpdateRunning) {
+        sshOutputTail = (sshOutputTail + sshTextDecoder.decode(chunk, {stream: true})).slice(-2048);
+        const completed = sshOutputTail.match(/__UBUNTU_DASHBOARD_UPDATE_DONE__:(\d+)/);
+        if (completed) {
+          hostUpdateRunning = false;
+          sshOutputTail = "";
+          setTimeout(refreshHostUpdates, 1200);
+        }
+      }
       return;
     }
     let message;

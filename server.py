@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
 # Deliberately image-owned: old Compose files must not be able to override the UI version.
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 ACCOUNT_FILE = Path(os.getenv("ACCOUNT_FILE", "/data/account.json"))
@@ -39,6 +39,7 @@ COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 SESSION_TTL = int(os.getenv("SESSION_TTL", "43200"))
 SSH_HOST = os.getenv("SSH_HOST", "auto")
 SSH_PORT = int(os.getenv("SSH_PORT", "22"))
+HOST_MOUNTS_FILE = Path(os.getenv("HOST_MOUNTS_FILE", "/host-proc-mounts"))
 STARTED = time.time()
 _sample = {"at": 0, "cpu": None, "net": None}
 _cache = {}
@@ -179,8 +180,8 @@ def github_version_info():
 def host_package_updates():
     distro = os_release_info().get("ID", "").lower()
     update_commands = {
-        "ubuntu": "sudo apt update && sudo apt upgrade -y",
-        "debian": "sudo apt update && sudo apt upgrade -y",
+        "ubuntu": "sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y",
+        "debian": "sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y",
         "fedora": "sudo dnf upgrade --refresh -y",
         "rocky": "sudo dnf upgrade --refresh -y",
         "rhel": "sudo dnf upgrade --refresh -y",
@@ -336,21 +337,37 @@ def os_release_info():
 
 
 def temperatures():
-    found = []
+    found, seen = [], set()
+
+    def add(name, raw):
+        try:
+            number = float(str(raw).strip())
+            value = number / 1000 if abs(number) > 200 else number
+            if -10 < value < 150:
+                key = (name.lower(), round(value, 1))
+                if key not in seen:
+                    found.append({"name": name, "value": round(value, 1)})
+                    seen.add(key)
+        except (TypeError, ValueError):
+            pass
+
     base = host_path("/sys/class/thermal")
     try:
         for zone in base.glob("thermal_zone*"):
-            raw = read_text(zone / "temp").strip()
-            if raw and raw.lstrip("-").isdigit():
-                value = int(raw) / 1000
-                if -10 < value < 150:
-                    found.append({
-                        "name": read_text(zone / "type", zone.name).strip(),
-                        "value": round(value, 1),
-                    })
+            add(read_text(zone / "type", zone.name).strip(), read_text(zone / "temp"))
     except OSError:
         pass
-    return found[:8]
+    hwmon_base = host_path("/sys/class/hwmon")
+    try:
+        for hwmon in hwmon_base.glob("hwmon*"):
+            chip = read_text(hwmon / "name", hwmon.name).strip()
+            for source in hwmon.glob("temp*_input"):
+                prefix = source.name.removesuffix("_input")
+                label = read_text(hwmon / f"{prefix}_label").strip()
+                add(f"{chip} · {label}" if label else f"{chip} · {prefix}", read_text(source))
+    except OSError:
+        pass
+    return found[:16]
 
 
 def system_info():
@@ -617,26 +634,39 @@ def docker_image_updates():
     return {"available": True, "containers": container_results}
 
 
+def host_mount_text():
+    for source in (
+        HOST_MOUNTS_FILE,
+        host_path("/proc/1/mounts"),
+        host_path("/proc/mounts"),
+        host_path("/etc/mtab"),
+    ):
+        content = read_text(source)
+        if content.strip():
+            return content
+    return ""
+
+
 def storage_info():
     ignored = ("proc", "sysfs", "tmpfs", "devtmpfs", "cgroup", "overlay", "squashfs",
-               "nsfs", "tracefs", "securityfs", "pstore", "debugfs", "mqueue", "fusectl")
-    useful_prefixes = ("/mnt", "/media", "/srv", "/storage", "/data", "/boot", "/home")
-    network_filesystems = ("nfs", "nfs4", "cifs")
+               "nsfs", "tracefs", "securityfs", "pstore", "debugfs", "mqueue",
+               "fusectl", "ramfs", "hugetlbfs", "configfs", "selinuxfs", "efivarfs")
+    data_filesystems = {
+        "ext2", "ext3", "ext4", "xfs", "zfs", "btrfs", "bcachefs", "f2fs",
+        "reiserfs", "jfs", "nilfs2", "fuse.shfs", "fuse.mergerfs", "fuse.unionfs",
+        "nfs", "nfs4", "cifs", "smb3", "ceph", "glusterfs",
+    }
     result, seen = [], set()
-    for line in read_text(host_path("/proc/mounts")).splitlines():
+    for line in host_mount_text().splitlines():
         parts = line.split()
         if len(parts) < 3:
             continue
         device, mount, fs = parts[:3]
-        mount = mount.replace("\\040", " ")
+        device = device.replace("\\040", " ")
+        mount = mount.replace("\\040", " ").replace("\\011", "\t")
         if fs.startswith(ignored) or mount in seen or not mount.startswith("/"):
             continue
-        if not (device.startswith("/dev/") or fs in ("zfs", "btrfs", *network_filesystems)):
-            continue
-        # Container-Runtimes und Desktop-Sandboxes erzeugen zahlreiche Datei-
-        # Bind-Mounts unter /etc und /app. Für ein Server-Dashboard sind nur
-        # echte System-, Daten- und Netzwerk-Mounts relevant.
-        if mount != "/" and not mount.startswith(useful_prefixes) and fs not in network_filesystems:
+        if not (device.startswith("/dev/") or fs in data_filesystems):
             continue
         try:
             stats = os.statvfs(host_path(mount))
@@ -759,7 +789,7 @@ def share_roots():
     for path in configured:
         add(Path(path).name or path, path, "Konfiguriert")
 
-    mount_lines = read_text(host_path("/proc/mounts")).splitlines()
+    mount_lines = host_mount_text().splitlines()
     for line in mount_lines:
         parts = line.split()
         if len(parts) < 3:
@@ -1119,6 +1149,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/account":
             self.handle_account_update(session)
+            return
+        if path == "/api/host-updates/refresh":
+            _cache.pop("host-updates", None)
+            result = host_package_updates()
+            _cache["host-updates"] = (time.time(), result)
+            self.send_json(result)
             return
         if path.startswith("/api/files/"):
             self.handle_file_action(path.removeprefix("/api/files/"))

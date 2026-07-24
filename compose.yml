@@ -4,7 +4,7 @@ services:
     build:
       context: .
       args:
-        APP_VERSION: "1.7.0"
+        APP_VERSION: "1.8.0"
     container_name: ubuntu-dashboard
     restart: unless-stopped
     ports:
@@ -19,7 +19,16 @@ services:
       COOKIE_SECURE: "${COOKIE_SECURE:-false}"
       SESSION_TTL: "${SESSION_TTL:-43200}"
     volumes:
-      - /:/host:rw
+      - type: bind
+        source: /
+        target: /host
+        bind:
+          propagation: rslave
+      - type: bind
+        source: /proc/1/mounts
+        target: /host-proc-mounts
+        read_only: true
+      - /sys:/host/sys:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ubuntu-dashboard-data:/data
     security_opt:

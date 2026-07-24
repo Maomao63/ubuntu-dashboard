@@ -7,10 +7,11 @@ Docker-Container und verwendet ausschließlich die Python-Standardbibliothek.
 ## Funktionen
 
 - Live-Werte für CPU, RAM, Uptime und Netzwerk
-- Temperaturen, sofern der Host sie unter `/sys/class/thermal` bereitstellt
+- Temperaturen aus Thermal-Zones und hwmon für CPU, NVMe, Mainboard, GPU und drivetemp
 - Docker-Container anzeigen, starten, stoppen und neu starten
 - Docker-Healthstatus in Grün/Gelb/Rot und Registry-Prüfung auf neue Images
 - Lokale Datenträger und Netzwerk-Mounts mit Belegung
+- ext4/XFS, ZFS, Btrfs, md/LVM, Unraid shfs, NFS/SMB, Ceph und weitere Server-Dateisysteme
 - Prozesse nach Speicherbedarf
 - klassische Host-Logs aus `/var/log`
 - schreibender Data Browser für Ordner sowie UTF-8-Text-, YAML- und Konfigurationsdateien
@@ -107,8 +108,8 @@ anschließend bauen:
 
 ```bash
 docker compose build --pull
-docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.7.0
+docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.8.0
 docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:latest
-docker push ghcr.io/dein-name/ubuntu-dashboard:1.7.0
+docker push ghcr.io/dein-name/ubuntu-dashboard:1.8.0
 docker push ghcr.io/dein-name/ubuntu-dashboard:latest
 ```
