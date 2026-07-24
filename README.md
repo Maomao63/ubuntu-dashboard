@@ -7,6 +7,7 @@ Docker-Container und verwendet ausschließlich die Python-Standardbibliothek.
 ## Funktionen
 
 - Live-Werte für CPU, RAM, Uptime sowie getrennten Down-/Upload über die Host-SYSFS-Zähler
+- getrennte blaue Download- und rote Upload-Livekurven
 - Disk-Temperaturen, Laufwerkszustand und SMART-Health für HDDs, SSDs und NVMe
 - Docker-Container anzeigen, starten, stoppen und neu starten
 - Compose-/Arcane-Stacks in der Übersicht mit zusammengefasstem Grün/Gelb/Rot-Status
@@ -28,6 +29,7 @@ Docker-Container und verwendet ausschließlich die Python-Standardbibliothek.
 - responsives Web-UI für Desktop, Tablet und Smartphone
 - Dashboard-Login mit zeitlich begrenzter Session, CSRF-Schutz und Rate-Limit
 - eigener Settings-Bereich zum Ändern von Benutzername und Passwort
+- persistenter Discord-Wächter mit Hintergrundmonitor, Testfunktion, Mentions und frei wählbaren Alarmkategorien
 - Read-only-Dateisystem und Healthcheck im Container
 
 Für SMART-Daten und Temperaturen benötigt der Container direkten Zugriff auf
@@ -85,6 +87,9 @@ sollte nicht direkt ins Internet gestellt werden. Im Heimnetz mindestens
 einen Reverse Proxy mit HTTPS verwenden und dann `COOKIE_SECURE=true` setzen.
 Der Login erzeugt eine zufällige, nur per HttpOnly-Cookie zugängliche Session,
 prüft schreibende Requests mit einem CSRF-Token und begrenzt Fehlversuche.
+Discord-Webhook-Tokens werden mit Dateimodus `0600` im persistenten
+Dashboard-Volume gespeichert und von der API nicht wieder an den Browser
+ausgegeben.
 Das erste Konto wird aus `DASHBOARD_USER` und `DASHBOARD_PASSWORD` erstellt.
 Spätere Änderungen im Settings-Tab werden als PBKDF2-Hash im Docker-Volume
 `ubuntu-dashboard-data` gespeichert und bleiben bei Container-Updates erhalten.
@@ -120,8 +125,8 @@ anschließend bauen:
 
 ```bash
 docker compose build --pull
-docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.10.1
+docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.11.0
 docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:latest
-docker push ghcr.io/dein-name/ubuntu-dashboard:1.10.1
+docker push ghcr.io/dein-name/ubuntu-dashboard:1.11.0
 docker push ghcr.io/dein-name/ubuntu-dashboard:latest
 ```

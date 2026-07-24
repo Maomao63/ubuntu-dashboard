@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0e13">
   <title>Ubuntu Server Dashboard</title>
-  <link rel="stylesheet" href="/vendor/xterm.css?v=1.10.1">
-  <link rel="stylesheet" href="/styles.css?v=1.10.1">
+  <link rel="stylesheet" href="/vendor/xterm.css?v=1.11.0">
+  <link rel="stylesheet" href="/styles.css?v=1.11.0">
 </head>
 <body>
   <aside class="sidebar">
@@ -25,7 +25,7 @@
       <button class="nav" data-page="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg><span data-i18n="nav.settings">Settings</span></button>
     </nav>
     <div class="side-foot">
-      <div class="sidebar-live"><span class="pulse"></span><span id="live-status">LIVE · 500 ms</span></div>
+      <div class="sidebar-live"><span class="pulse"></span><span id="live-status">TICKRATE · 500 ms</span></div>
       <div class="sidebar-version">
         <span class="version-check" id="version-check"><i>✓</i><span data-i18n="version.latest">Latest version</span></span>
         <small id="version">v– · latest</small>
@@ -47,7 +47,6 @@
         </div>
       </div>
       <div class="header-actions">
-        <span class="updated" id="updated">Connecting…</span>
         <button class="icon-button" id="refresh" title="Jetzt aktualisieren">↻</button>
       </div>
     </header>
@@ -80,10 +79,18 @@
           <div><small data-i18n="overview.memory">MEMORY</small><strong id="ram-value">0%</strong><span id="ram-sub">–</span></div>
           <div class="ring" id="ram-ring"><span id="ram-ring-value">0</span></div>
         </article>
-        <article class="metric cyan" data-widget="network">
-          <div class="metric-icon">↕</div>
-          <div><small data-i18n="overview.network">NETWORK</small><strong id="network-value">0 B/s</strong><span id="network-sub">–</span></div>
-          <div class="spark"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <article class="metric network-metric cyan" data-widget="network">
+          <div class="network-head"><div class="metric-icon">↕</div><small data-i18n="overview.network">NETWORK</small><span id="network-interface">–</span></div>
+          <div class="network-rates">
+            <div class="network-rate download"><i>↓</i><span><small data-i18n="network.download">DOWNLOAD</small><strong id="network-down">0 B/s</strong></span></div>
+            <div class="network-rate upload"><i>↑</i><span><small data-i18n="network.upload">UPLOAD</small><strong id="network-up">0 B/s</strong></span></div>
+          </div>
+          <div class="network-chart">
+            <svg viewBox="0 0 120 34" preserveAspectRatio="none" aria-hidden="true">
+              <polyline id="network-down-line" points=""></polyline>
+              <polyline id="network-up-line" points=""></polyline>
+            </svg>
+          </div>
         </article>
         <article class="metric green" data-widget="docker">
           <div class="metric-icon">⬡</div>
@@ -251,6 +258,29 @@
             <option value="pl">PL · Polski</option>
           </select>
         </article>
+        <article class="panel notification-card">
+          <div class="notification-head">
+            <span class="notification-icon">◉</span>
+            <div><h3 data-i18n="notifications.title">Discord watchdog</h3><p data-i18n="notifications.description">Get pinged when the server needs attention.</p></div>
+            <label class="setting-switch"><input id="notifications-enabled" type="checkbox"><span><i></i></span><b data-i18n="notifications.enabled">Enabled</b></label>
+          </div>
+          <form id="notification-form" autocomplete="off">
+            <label class="notification-field webhook-field"><span data-i18n="notifications.webhook">Discord webhook URL</span><input id="notification-webhook" type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off"><small id="webhook-state"></small></label>
+            <label class="notification-field"><span data-i18n="notifications.mention">Mention / role ID</span><input id="notification-mention" placeholder="&lt;@&amp;ROLE_ID&gt; or @here"><small data-i18n="notifications.mentionHint">Use a Discord role/user ID for a real ping.</small></label>
+            <label class="notification-field"><span data-i18n="notifications.repeat">Repeat active alerts after</span><select id="notification-repeat"><option value="15">15 min</option><option value="30">30 min</option><option value="60">1 h</option><option value="180">3 h</option><option value="720">12 h</option><option value="1440">24 h</option></select></label>
+            <div class="notification-options">
+              <label class="setting-switch"><input id="notification-disks" type="checkbox"><span><i></i></span><b data-i18n="notifications.disks">Disk problems</b></label>
+              <label class="setting-switch"><input id="notification-containers" type="checkbox"><span><i></i></span><b data-i18n="notifications.containers">Container problems</b></label>
+              <label class="setting-switch"><input id="notification-system" type="checkbox"><span><i></i></span><b data-i18n="notifications.system">System problems</b></label>
+            </div>
+            <small id="notification-status" role="status"></small>
+            <div class="notification-actions">
+              <button id="notification-remove" class="action danger" type="button" data-i18n="notifications.remove">Remove webhook</button>
+              <button id="notification-test" class="action" type="button" data-i18n="notifications.test">Save & test</button>
+              <button class="settings-primary notification-save" type="submit" data-i18n="notifications.save">Save notifications</button>
+            </div>
+          </form>
+        </article>
       </div>
     </section>
   </main>
@@ -283,9 +313,9 @@
   </dialog>
 
   <div id="toast" role="status"></div>
-  <script src="/i18n.js?v=1.10.1"></script>
-  <script src="/vendor/xterm.js?v=1.10.1"></script>
-  <script src="/vendor/addon-fit.js?v=1.10.1"></script>
-  <script src="/app.js?v=1.10.1"></script>
+  <script src="/i18n.js?v=1.11.0"></script>
+  <script src="/vendor/xterm.js?v=1.11.0"></script>
+  <script src="/vendor/addon-fit.js?v=1.11.0"></script>
+  <script src="/app.js?v=1.11.0"></script>
 </body>
 </html>

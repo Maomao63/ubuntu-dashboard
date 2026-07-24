@@ -18,6 +18,7 @@ import stat
 import struct
 import subprocess
 import termios
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -30,10 +31,11 @@ ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
 # Deliberately image-owned: old Compose files must not be able to override the UI version.
-VERSION = "1.10.1"
+VERSION = "1.11.0"
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 ACCOUNT_FILE = Path(os.getenv("ACCOUNT_FILE", "/data/account.json"))
+NOTIFICATION_FILE = Path(os.getenv("NOTIFICATION_FILE", "/data/notifications.json"))
 ALLOW_ACTIONS = os.getenv("ALLOW_DOCKER_ACTIONS", "true").lower() == "true"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 SESSION_TTL = int(os.getenv("SESSION_TTL", "43200"))
@@ -44,10 +46,26 @@ HOST_MOUNTS_FILE = Path(os.getenv("HOST_MOUNTS_FILE", "/host-proc-mounts"))
 HOST_NET_ROUTE_FILE = Path(os.getenv("HOST_NET_ROUTE_FILE", "/host-proc-net-route"))
 STARTED = time.time()
 _sample = {"at": 0, "cpu": None, "net": None}
+_sample_lock = threading.Lock()
 _cache = {}
 _sessions = {}
 _login_attempts = {}
 _account = None
+_notification_lock = threading.Lock()
+_notification_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+_notification_pending = False
+_notification_state = {}
+_notification_runtime = {"lastSent": None, "lastError": ""}
+
+NOTIFICATION_DEFAULTS = {
+    "enabled": False,
+    "webhookUrl": "",
+    "mention": "",
+    "diskAlerts": True,
+    "containerAlerts": True,
+    "systemAlerts": True,
+    "repeatMinutes": 60,
+}
 
 
 def read_text(path, default=""):
@@ -129,6 +147,27 @@ def load_account():
     return None
 
 
+def save_notification_settings(settings):
+    NOTIFICATION_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temporary = NOTIFICATION_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps(settings))
+    os.chmod(temporary, 0o600)
+    temporary.replace(NOTIFICATION_FILE)
+
+
+def load_notification_settings():
+    settings = dict(NOTIFICATION_DEFAULTS)
+    try:
+        stored = json.loads(NOTIFICATION_FILE.read_text())
+        if isinstance(stored, dict):
+            for key in settings:
+                if key in stored:
+                    settings[key] = stored[key]
+    except (OSError, ValueError, json.JSONDecodeError):
+        pass
+    return settings
+
+
 def account_configured():
     return _account is not None
 
@@ -146,6 +185,7 @@ def verify_account(username, password):
 
 
 _account = load_account()
+_notification_settings = load_notification_settings()
 
 
 def version_tuple(value):
@@ -356,20 +396,21 @@ def os_release_info():
 
 def system_info():
     global _sample
-    now = time.time()
-    current_cpu = cpu_snapshot()
-    current_net = net_snapshot()
-    cpu_percent = 0
-    rates = {"down": 0, "up": 0}
-    elapsed = now - _sample["at"]
-    if _sample["cpu"] and current_cpu and elapsed > 0:
-        total_delta = current_cpu[0] - _sample["cpu"][0]
-        idle_delta = current_cpu[1] - _sample["cpu"][1]
-        if total_delta > 0:
-            cpu_percent = round((total_delta - idle_delta) / total_delta * 100, 1)
-    if _sample["net"] and elapsed > 0:
-        rates = network_rates(current_net, _sample["net"], elapsed)
-    _sample = {"at": now, "cpu": current_cpu, "net": current_net}
+    with _sample_lock:
+        now = time.time()
+        current_cpu = cpu_snapshot()
+        current_net = net_snapshot()
+        cpu_percent = 0
+        rates = {"down": 0, "up": 0}
+        elapsed = now - _sample["at"]
+        if _sample["cpu"] and current_cpu and elapsed > 0:
+            total_delta = current_cpu[0] - _sample["cpu"][0]
+            idle_delta = current_cpu[1] - _sample["cpu"][1]
+            if total_delta > 0:
+                cpu_percent = round((total_delta - idle_delta) / total_delta * 100, 1)
+        if _sample["net"] and elapsed > 0:
+            rates = network_rates(current_net, _sample["net"], elapsed)
+        _sample = {"at": now, "cpu": current_cpu, "net": current_net}
 
     uptime_raw = read_text(host_path("/proc/uptime"), "0").split()
     uptime = int(float(uptime_raw[0])) if uptime_raw else 0
@@ -531,6 +572,11 @@ def docker_info():
                 "total": len(members),
                 "health": health,
                 "containerIds": [member["fullId"] for member in members],
+                "problems": [
+                    {"name": member["name"], "status": member["status"] or member["state"]}
+                    for member in members
+                    if member["state"] != "running" or member["health"] in ("unhealthy", "starting")
+                ][:8],
             })
         health_order = {"critical": 0, "warning": 1, "healthy": 2}
         stacks.sort(key=lambda stack: (health_order[stack["health"]], stack["name"].lower()))
@@ -1152,6 +1198,240 @@ def storage_info():
     return groups
 
 
+def valid_discord_webhook(url):
+    try:
+        parsed = urlparse(url)
+        return (
+            parsed.scheme == "https"
+            and parsed.hostname in ("discord.com", "ptb.discord.com", "canary.discord.com")
+            and bool(re.fullmatch(r"/api/webhooks/\d+/[A-Za-z0-9._-]+/?", parsed.path))
+            and not parsed.username
+            and not parsed.password
+        )
+    except ValueError:
+        return False
+
+
+def normalized_mention(value):
+    mention = " ".join(str(value or "").strip().split())
+    if not mention:
+        return ""
+    if mention.isdigit():
+        return f"<@&{mention}>"
+    tokens = mention.split()
+    if all(token in ("@everyone", "@here") or re.fullmatch(r"<@&?\d+>|<@!\d+>", token) for token in tokens):
+        return mention
+    raise ValueError("Use a role/user ID, <@&ROLE_ID>, <@USER_ID>, @here or @everyone.")
+
+
+def allowed_mentions(mention):
+    roles = list(dict.fromkeys(re.findall(r"<@&(\d+)>", mention)))[:100]
+    users = list(dict.fromkeys(re.findall(r"<@!?(\d+)>", mention)))[:100]
+    result = {"parse": ["everyone"] if "@everyone" in mention or "@here" in mention else []}
+    if roles:
+        result["roles"] = roles
+    if users:
+        result["users"] = users
+    return result
+
+
+def safe_webhook_error(exc):
+    if isinstance(exc, urllib.error.HTTPError):
+        return f"Discord returned HTTP {exc.code}"
+    if isinstance(exc, urllib.error.URLError):
+        return f"Discord connection failed: {str(exc.reason)[:180]}"
+    message = str(exc)
+    webhook = _notification_settings.get("webhookUrl", "")
+    return (message.replace(webhook, "[webhook]") if webhook else message)[:240]
+
+
+def send_discord_notification(title, description, severity="warning", category="System"):
+    with _notification_lock:
+        settings = dict(_notification_settings)
+    webhook = settings.get("webhookUrl", "")
+    if not webhook or not valid_discord_webhook(webhook):
+        raise ValueError("No valid Discord webhook is configured.")
+    mention = normalized_mention(settings.get("mention", ""))
+    color = 0xF25F68 if severity == "critical" else 0xE8AD43 if severity == "warning" else 0x43D17A
+    payload = {
+        "username": "Ubuntu Dashboard Watchdog",
+        "content": mention,
+        "allowed_mentions": allowed_mentions(mention),
+        "embeds": [{
+            "title": title[:256],
+            "description": description[:3500],
+            "color": color,
+            "fields": [
+                {"name": "Host", "value": read_text(host_path("/etc/hostname"), socket.gethostname()).strip()[:1024], "inline": True},
+                {"name": "Category", "value": category[:1024], "inline": True},
+                {"name": "Severity", "value": severity.upper(), "inline": True},
+            ],
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }],
+    }
+    separator = "&" if "?" in webhook else "?"
+    request = urllib.request.Request(
+        f"{webhook}{separator}wait=true",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json", "User-Agent": f"ubuntu-dashboard/{VERSION}"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            if response.status not in (200, 204):
+                raise RuntimeError(f"Discord returned HTTP {response.status}")
+        with _notification_lock:
+            _notification_runtime["lastSent"] = int(time.time())
+            _notification_runtime["lastError"] = ""
+        return True
+    except Exception as exc:
+        safe_error = safe_webhook_error(exc)
+        with _notification_lock:
+            _notification_runtime["lastError"] = safe_error
+        raise RuntimeError(safe_error) from None
+
+
+def collect_alert_issues(system, docker, storage):
+    with _notification_lock:
+        settings = dict(_notification_settings)
+    issues = {}
+    if settings.get("diskAlerts"):
+        for disk in system.get("disks", []):
+            if disk.get("health") in ("warning", "critical"):
+                temperature = f" · {disk['temperature']} °C" if disk.get("temperature") is not None else ""
+                issues[f"disk:{disk.get('device')}"] = {
+                    "category": "Disks",
+                    "severity": disk["health"],
+                    "title": f"Disk problem: {disk.get('name')}",
+                    "description": f"`/dev/{disk.get('device')}` · {disk.get('model')}{temperature}",
+                    "delay": 0,
+                }
+    if settings.get("containerAlerts"):
+        if docker.get("available"):
+            for stack in docker.get("stacks", []):
+                if stack.get("health") in ("warning", "critical"):
+                    problem_lines = "\n".join(
+                        f"• **{item.get('name')}** — {item.get('status')}"
+                        for item in stack.get("problems", [])
+                    )
+                    issues[f"stack:{stack.get('name')}"] = {
+                        "category": "Containers",
+                        "severity": stack["health"],
+                        "title": f"Docker stack problem: {stack.get('name')}",
+                        "description": (
+                            f"{stack.get('running', 0)}/{stack.get('total', 0)} containers are running."
+                            + (f"\n{problem_lines}" if problem_lines else "")
+                        ),
+                        "delay": 5,
+                    }
+            for container in docker.get("containers", []):
+                if not container.get("stack") and (
+                    container.get("health") == "unhealthy" or container.get("state") in ("restarting", "dead")
+                ):
+                    issues[f"container:{container.get('fullId')}"] = {
+                        "category": "Containers",
+                        "severity": "critical" if container.get("health") == "unhealthy" or container.get("state") == "dead" else "warning",
+                        "title": f"Container problem: {container.get('name')}",
+                        "description": container.get("status") or container.get("state", "Unknown Docker state"),
+                        "delay": 5,
+                    }
+    if settings.get("systemAlerts"):
+        if not docker.get("available"):
+            issues["system:docker"] = {
+                "category": "System", "severity": "critical", "title": "Docker is unavailable",
+                "description": docker.get("error", "The Docker daemon cannot be reached."), "delay": 10,
+            }
+        if system.get("cpu", {}).get("percent", 0) >= 95:
+            issues["system:cpu"] = {
+                "category": "System", "severity": "warning", "title": "Sustained high CPU load",
+                "description": f"CPU usage is {system['cpu']['percent']}%.", "delay": 30,
+            }
+        if system.get("memory", {}).get("percent", 0) >= 95:
+            issues["system:memory"] = {
+                "category": "System", "severity": "warning", "title": "Memory almost exhausted",
+                "description": f"Memory usage is {system['memory']['percent']}%.", "delay": 30,
+            }
+        for group in storage:
+            percent = float(group.get("percent", 0))
+            if percent >= 90:
+                issues[f"system:storage:{group.get('name')}"] = {
+                    "category": "System",
+                    "severity": "critical" if percent >= 98 else "warning",
+                    "title": f"Storage capacity warning: {group.get('name')}",
+                    "description": f"{percent}% of {bytes_label(group.get('total', 0))} is in use.",
+                    "delay": 0,
+                }
+    return issues
+
+
+def evaluate_alerts(system, docker, storage):
+    global _notification_state
+    with _notification_lock:
+        settings = dict(_notification_settings)
+    if not settings.get("enabled") or not settings.get("webhookUrl"):
+        with _notification_lock:
+            _notification_state = {}
+        return
+    now = time.time()
+    issues = collect_alert_issues(system, docker, storage)
+    repeat = max(300, int(settings.get("repeatMinutes", 60)) * 60)
+    pending = []
+    with _notification_lock:
+        for key, issue in issues.items():
+            signature = (issue["severity"], issue["title"], issue["description"])
+            previous = _notification_state.get(key)
+            if not previous or previous["signature"] != signature:
+                previous = {"signature": signature, "firstSeen": now, "lastSent": 0}
+                _notification_state[key] = previous
+            if now - previous["firstSeen"] >= issue.get("delay", 0) and now - previous["lastSent"] >= repeat:
+                previous["lastSent"] = now
+                pending.append((key, issue))
+        for key in list(_notification_state):
+            if key not in issues:
+                _notification_state.pop(key, None)
+    for key, issue in pending:
+        try:
+            send_discord_notification(issue["title"], issue["description"], issue["severity"], issue["category"])
+        except Exception as exc:
+            with _notification_lock:
+                if key in _notification_state:
+                    _notification_state[key]["lastSent"] = time.time() - repeat + 60
+            print(f"[notifications] Discord webhook failed: {exc}")
+
+
+def schedule_alert_evaluation(system, docker, storage):
+    global _notification_pending
+    with _notification_lock:
+        if _notification_pending or not _notification_settings.get("enabled"):
+            return
+        _notification_pending = True
+
+    def run():
+        global _notification_pending
+        try:
+            evaluate_alerts(system, docker, storage)
+        finally:
+            with _notification_lock:
+                _notification_pending = False
+
+    _notification_executor.submit(run)
+
+
+def notification_monitor_loop():
+    while True:
+        try:
+            with _notification_lock:
+                enabled = _notification_settings.get("enabled") and _notification_settings.get("webhookUrl")
+            if enabled:
+                system = system_info()
+                docker = cached("docker", 1.5, docker_info)
+                storage = cached("storage", 8, storage_info)
+                evaluate_alerts(system, docker, storage)
+        except Exception as exc:
+            print(f"[notifications] Monitor error: {exc}")
+        time.sleep(10)
+
+
 def process_info():
     processes = []
     proc = host_path("/proc")
@@ -1548,12 +1828,16 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         if path == "/api/overview":
+            system = system_info()
+            docker = cached("docker", 1.5, docker_info)
+            storage = cached("storage", 8, storage_info)
+            schedule_alert_evaluation(system, docker, storage)
             self.send_json({
                 "version": VERSION,
                 "dashboardUptime": int(time.time() - STARTED),
-                "system": system_info(),
-                "docker": cached("docker", 1.5, docker_info),
-                "storage": cached("storage", 8, storage_info),
+                "system": system,
+                "docker": docker,
+                "storage": storage,
             })
         elif path == "/api/version":
             self.send_json(cached("github-version", 900, github_version_info))
@@ -1563,6 +1847,20 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({
                 "username": session.get("username", "local"),
                 "persistent": account_configured() and ACCOUNT_FILE.is_file(),
+            })
+        elif path == "/api/notifications":
+            with _notification_lock:
+                settings = dict(_notification_settings)
+                runtime = dict(_notification_runtime)
+            self.send_json({
+                "enabled": bool(settings["enabled"]),
+                "webhookConfigured": bool(settings["webhookUrl"]),
+                "mention": settings["mention"],
+                "diskAlerts": bool(settings["diskAlerts"]),
+                "containerAlerts": bool(settings["containerAlerts"]),
+                "systemAlerts": bool(settings["systemAlerts"]),
+                "repeatMinutes": settings["repeatMinutes"],
+                **runtime,
             })
         elif path == "/api/processes":
             self.send_json({"processes": process_info()})
@@ -1612,6 +1910,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/account":
             self.handle_account_update(session)
+            return
+        if path == "/api/notifications":
+            self.handle_notification_update()
+            return
+        if path == "/api/notifications/test":
+            self.handle_notification_test()
             return
         if path.startswith("/api/files/"):
             self.handle_file_action(path.removeprefix("/api/files/"))
@@ -1762,6 +2066,53 @@ class Handler(BaseHTTPRequestHandler):
         _sessions[token] = session
         self.send_json({"ok": True, "username": username, "csrf": session["csrf"]})
 
+    def handle_notification_update(self):
+        global _notification_settings, _notification_state
+        try:
+            length = min(int(self.headers.get("Content-Length", "0")), 16384)
+            payload = json.loads(self.rfile.read(length) or b"{}")
+            with _notification_lock:
+                updated = dict(_notification_settings)
+            webhook = str(payload.get("webhookUrl", "")).strip()
+            if payload.get("clearWebhook"):
+                updated["webhookUrl"] = ""
+            elif webhook:
+                if not valid_discord_webhook(webhook):
+                    raise ValueError("Only a valid https://discord.com/api/webhooks/... URL is allowed.")
+                updated["webhookUrl"] = webhook
+            updated["mention"] = normalized_mention(payload.get("mention", ""))
+            for key in ("enabled", "diskAlerts", "containerAlerts", "systemAlerts"):
+                if key in payload:
+                    updated[key] = bool(payload[key])
+            repeat = int(payload.get("repeatMinutes", updated["repeatMinutes"]))
+            updated["repeatMinutes"] = min(1440, max(5, repeat))
+            if updated["enabled"] and not updated["webhookUrl"]:
+                raise ValueError("Configure a Discord webhook before enabling notifications.")
+            save_notification_settings(updated)
+        except (ValueError, TypeError, OSError, json.JSONDecodeError) as exc:
+            self.send_json({"error": str(exc)}, 400)
+            return
+        with _notification_lock:
+            _notification_settings = updated
+            _notification_state = {}
+        self.send_json({
+            "ok": True,
+            "webhookConfigured": bool(updated["webhookUrl"]),
+            "enabled": updated["enabled"],
+        })
+
+    def handle_notification_test(self):
+        try:
+            send_discord_notification(
+                "Test alert: the watchdog is awake",
+                "Discord notifications from Ubuntu Dashboard are configured correctly.",
+                "healthy",
+                "Test",
+            )
+            self.send_json({"ok": True})
+        except Exception as exc:
+            self.send_json({"error": f"Discord test failed: {exc}"}, 502)
+
     def handle_ssh_websocket(self):
         session = self.current_session()
         if not session:
@@ -1905,5 +2256,6 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8080"))
+    threading.Thread(target=notification_monitor_loop, name="notification-monitor", daemon=True).start()
     print(f"Ubuntu Dashboard {VERSION} läuft auf 0.0.0.0:{port}")
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

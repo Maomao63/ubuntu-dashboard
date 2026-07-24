@@ -15,7 +15,7 @@ let sshSocket = null;
 let sshTerminal = null;
 let sshFit = null;
 let dockerUpdates = {};
-let networkHistory = [];
+let networkHistory = {down: [], up: []};
 
 function t(key) {
   return window.I18N?.[currentLanguage]?.[key] ?? window.I18N?.en?.[key] ?? key;
@@ -278,17 +278,20 @@ function render(data) {
   $("#ram-sub").textContent = `${bytes(system.memory.used)} ${t("common.of")} ${bytes(system.memory.total)}`;
   $("#ram-ring-value").textContent = Math.round(system.memory.percent);
   $("#ram-ring").style.setProperty("--value", system.memory.percent);
-  const networkTotal = system.network.down + system.network.up;
-  const sparkBars = $$(".spark i");
-  networkHistory.push(networkTotal);
-  networkHistory = networkHistory.slice(-sparkBars.length);
-  const networkPeak = Math.max(...networkHistory, 1);
-  const paddedHistory = Array(sparkBars.length - networkHistory.length).fill(0).concat(networkHistory);
-  sparkBars.forEach((bar, index) => {
-    bar.style.height = `${Math.max(8, paddedHistory[index] / networkPeak * 100)}%`;
-  });
-  $("#network-value").textContent = bytes(networkTotal, true);
-  $("#network-sub").textContent = `↓ ${bytes(system.network.down, true)} · ↑ ${bytes(system.network.up, true)} · ${system.network.interfaces.join(", ") || "–"}`;
+  networkHistory.down.push(system.network.down);
+  networkHistory.up.push(system.network.up);
+  networkHistory.down = networkHistory.down.slice(-30);
+  networkHistory.up = networkHistory.up.slice(-30);
+  const networkPeak = Math.max(...networkHistory.down, ...networkHistory.up, 1);
+  const chartPoints = values => {
+    const padded = Array(30 - values.length).fill(0).concat(values);
+    return padded.map((value, index) => `${index * 120 / 29},${32 - value / networkPeak * 29}`).join(" ");
+  };
+  $("#network-down-line").setAttribute("points", chartPoints(networkHistory.down));
+  $("#network-up-line").setAttribute("points", chartPoints(networkHistory.up));
+  $("#network-down").textContent = bytes(system.network.down, true);
+  $("#network-up").textContent = bytes(system.network.up, true);
+  $("#network-interface").textContent = system.network.interfaces.join(", ") || "–";
   $("#docker-value").textContent = docker.available ? `${docker.stacks.length} ${t("docker.stacks")}` : "Offline";
   $("#docker-sub").textContent = docker.available ? `${docker.stacks.reduce((sum, stack) => sum + stack.running, 0)}/${docker.stacks.reduce((sum, stack) => sum + stack.total, 0)} ${t("common.containers")} · Docker ${docker.version}` : docker.error;
   $(".health-dot").className = `health-dot ${docker.available ? docker.health || "healthy" : "unhealthy"}`;
@@ -325,7 +328,6 @@ function render(data) {
       </div>
     </article>`).join("") : `<div class="error-box">${t("common.noDrives")}</div>`;
   renderContainers(docker);
-  $("#updated").textContent = `${t("live.synced")} ${new Date().toLocaleTimeString(currentLanguage, {hour: "2-digit", minute: "2-digit", second: "2-digit"})}`;
 }
 
 async function loadOverview(manual = false) {
@@ -338,12 +340,11 @@ async function loadOverview(manual = false) {
     render(await response.json());
     failedUpdates = 0;
     $(".sidebar-live").classList.remove("offline");
-    $("#live-status").textContent = `LIVE · ${LIVE_INTERVAL_MS} ms`;
+    $("#live-status").textContent = `${t("live.tickrate")} · ${LIVE_INTERVAL_MS} ms`;
     if (manual) toast("Daten wurden aktualisiert");
   } catch (error) {
     failedUpdates++;
     toast(`Verbindung fehlgeschlagen: ${error.message}`, true);
-    $("#updated").textContent = "Keine Verbindung";
     $(".sidebar-live").classList.add("offline");
     $("#live-status").textContent = t("live.disconnected");
   } finally {
@@ -733,16 +734,126 @@ $("#terminal-disconnect").addEventListener("click", () => closeSsh(true));
 
 async function loadAccountSettings() {
   try {
-    const response = await fetch("/api/account");
-    if (!response.ok) throw new Error("Account could not be loaded.");
-    const account = await response.json();
+    const [accountResponse, notificationResponse] = await Promise.all([
+      fetch("/api/account"),
+      fetch("/api/notifications")
+    ]);
+    if (!accountResponse.ok) throw new Error("Account could not be loaded.");
+    const account = await accountResponse.json();
     $("#account-username").value = account.username || "";
     $("#settings-account-name").textContent = account.username || "Account";
     $("#settings-avatar").textContent = (account.username || "A").charAt(0).toUpperCase();
+    if (notificationResponse.ok) {
+      const notifications = await notificationResponse.json();
+      $("#notifications-enabled").checked = notifications.enabled;
+      $("#notification-disks").checked = notifications.diskAlerts;
+      $("#notification-containers").checked = notifications.containerAlerts;
+      $("#notification-system").checked = notifications.systemAlerts;
+      $("#notification-mention").value = notifications.mention || "";
+      $("#notification-repeat").value = String(notifications.repeatMinutes || 60);
+      $("#notification-webhook").value = "";
+      $("#notification-webhook").placeholder = notifications.webhookConfigured
+        ? t("notifications.configured")
+        : "https://discord.com/api/webhooks/…";
+      $("#webhook-state").textContent = notifications.webhookConfigured
+        ? t("notifications.configuredHint")
+        : t("notifications.notConfigured");
+      $("#webhook-state").className = notifications.webhookConfigured ? "configured" : "";
+      $("#notification-status").textContent = notifications.lastError
+        ? `${t("notifications.lastError")}: ${notifications.lastError}`
+        : notifications.lastSent
+          ? `${t("notifications.lastSent")}: ${new Date(notifications.lastSent * 1000).toLocaleString(currentLanguage)}`
+          : "";
+    }
   } catch (error) {
     $("#account-error").textContent = error.message;
   }
 }
+
+function notificationPayload(clearWebhook = false) {
+  return {
+    enabled: $("#notifications-enabled").checked,
+    webhookUrl: $("#notification-webhook").value.trim(),
+    clearWebhook,
+    mention: $("#notification-mention").value.trim(),
+    diskAlerts: $("#notification-disks").checked,
+    containerAlerts: $("#notification-containers").checked,
+    systemAlerts: $("#notification-system").checked,
+    repeatMinutes: Number($("#notification-repeat").value)
+  };
+}
+
+async function saveNotifications(clearWebhook = false, showToast = true) {
+  $("#notification-status").textContent = "";
+  const response = await fetch("/api/notifications", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken},
+    body: JSON.stringify(notificationPayload(clearWebhook))
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "Notifications could not be saved.");
+  $("#notification-webhook").value = "";
+  if (clearWebhook) {
+    $("#notifications-enabled").checked = false;
+    $("#notification-webhook").placeholder = "https://discord.com/api/webhooks/…";
+    $("#webhook-state").textContent = t("notifications.notConfigured");
+    $("#webhook-state").className = "";
+  } else if (data.webhookConfigured) {
+    $("#notification-webhook").placeholder = t("notifications.configured");
+    $("#webhook-state").textContent = t("notifications.configuredHint");
+    $("#webhook-state").className = "configured";
+  }
+  if (showToast) toast(t("notifications.saved"));
+  return data;
+}
+
+$("#notification-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector(".notification-save");
+  button.disabled = true;
+  try {
+    await saveNotifications();
+  } catch (error) {
+    $("#notification-status").textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("#notification-test").addEventListener("click", async event => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    await saveNotifications(false, false);
+    $("#notification-status").textContent = t("notifications.testing");
+    const response = await fetch("/api/notifications/test", {
+      method: "POST",
+      headers: {"X-CSRF-Token": csrfToken}
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Discord test failed.");
+    $("#notification-status").textContent = t("notifications.testSent");
+    toast(t("notifications.testSent"));
+  } catch (error) {
+    $("#notification-status").textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("#notification-remove").addEventListener("click", async event => {
+  if (!window.confirm(t("notifications.removeConfirm"))) return;
+  const button = event.currentTarget;
+  button.disabled = true;
+  $("#notifications-enabled").checked = false;
+  try {
+    await saveNotifications(true);
+  } catch (error) {
+    $("#notification-status").textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
 
 $("#account-form").addEventListener("submit", async event => {
   event.preventDefault();
