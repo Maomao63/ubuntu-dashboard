@@ -290,7 +290,12 @@ tbody tr:hover { background: #141920; }
 .file-icon { width: 25px; color: #85909c; font-size: 15px; text-align: center; }
 .file-icon.folder { color: #e7b54d; }
 .file-meta { color: var(--muted); }
-.terminal-panel { min-height: 520px; display: flex; flex-direction: column; background: #090c10; }
+.account-button {
+  border: 1px solid var(--border); border-radius: 8px; background: #11161c; color: #9ba5b2;
+  padding: 7px 10px; cursor: pointer; font: 600 9px/1 inherit;
+}
+.account-button:hover { color: white; border-color: #46505d; }
+.terminal-panel { min-height: min(720px, calc(100vh - 190px)); display: flex; flex-direction: column; background: #090c10; }
 .terminal-head {
   height: 46px; display: flex; align-items: center; gap: 12px; padding: 0 14px;
   border-bottom: 1px solid var(--border); background: #10141a;
@@ -300,25 +305,38 @@ tbody tr:hover { background: #141920; }
 .terminal-head > span i:nth-child(2) { background: #e8b64b; }
 .terminal-head > span i:nth-child(3) { background: #43d17a; }
 .terminal-head strong { flex: 1; color: #8f98a4; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
-.terminal-output {
-  flex: 1; min-height: 410px; max-height: calc(100vh - 300px); padding: 16px; overflow: auto;
-  color: #c6ccd4; font: 11px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace;
+.ssh-terminal-wrap { position: relative; flex: 1; min-height: 530px; }
+#ssh-terminal { position: absolute; inset: 14px; }
+#ssh-terminal .xterm { height: 100%; }
+.ssh-login-card {
+  position: absolute; z-index: 5; width: min(390px, calc(100% - 32px)); left: 50%; top: 50%;
+  transform: translate(-50%, -50%); display: grid; gap: 12px; padding: 26px;
+  border: 1px solid #2c3540; border-radius: 14px; background: #10151cf2;
+  box-shadow: 0 25px 80px #000c; backdrop-filter: blur(14px);
 }
-.terminal-line { white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 10px; }
-.terminal-line.command { color: #f18157; }
-.terminal-line.command::before { content: "$ "; color: var(--green); }
-.terminal-line.error { color: var(--danger); }
-.terminal-line.system { color: #697380; }
-.terminal-input-line {
-  min-height: 49px; display: flex; align-items: center; gap: 9px; padding: 8px 14px;
-  border-top: 1px solid var(--border); background: #0d1116;
+.ssh-login-card.hidden { display: none; }
+.ssh-login-icon { color: var(--brand); font: 700 20px ui-monospace, monospace; }
+.ssh-login-card h3 { margin: 0; font-size: 16px; color: #eef1f5; }
+.ssh-login-card p { margin: -4px 0 3px; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.ssh-login-card label { display: grid; gap: 6px; color: #9ca6b2; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+.ssh-login-card input {
+  width: 100%; border: 1px solid #303945; border-radius: 8px; outline: 0;
+  background: #090d12; color: white; padding: 11px 12px; font: 12px ui-monospace, monospace;
 }
-.terminal-input-line > span { color: var(--green); font: 12px ui-monospace, monospace; }
-.terminal-input-line input {
-  flex: 1; border: 0; outline: 0; background: transparent; color: white;
-  font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+.ssh-login-card input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 16%, transparent); }
+.ssh-login-card input:disabled { color: #6e7782; }
+.ssh-login-card button {
+  border: 0; border-radius: 8px; background: var(--brand); color: white; padding: 12px;
+  cursor: pointer; font-weight: 700; margin-top: 3px;
 }
-.terminal-input-line button { border: 1px solid #343c47; border-radius: 6px; background: #171c23; color: #b9c0c9; padding: 6px 11px; cursor: pointer; font-size: 9px; }
+.ssh-login-card button:disabled { opacity: .55; cursor: wait; }
+#ssh-error { min-height: 14px; color: var(--danger); font-size: 9px; line-height: 1.45; }
+.ssh-status { display: inline-flex; align-items: center; gap: 7px; color: #747e8a; font-size: 9px; letter-spacing: .08em; }
+.ssh-status i { width: 7px; height: 7px; border-radius: 50%; background: #59616b; }
+.ssh-status.connecting { color: #e5b64b; }
+.ssh-status.connecting i { background: #e5b64b; animation: livePulse 1s infinite; }
+.ssh-status.connected { color: var(--green); }
+.ssh-status.connected i { background: var(--green); box-shadow: 0 0 10px #43d17a80; }
 .loading { padding: 30px; color: var(--muted); text-align: center; font-size: 11px; }
 .log-panel { padding: 0; }
 pre { margin: 0; padding: 20px; max-height: calc(100vh - 220px); overflow: auto; color: #aeb6c2; font: 10px/1.8 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }

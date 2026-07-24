@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090b0f">
+  <title>Server Control · Sign in</title>
+  <link rel="stylesheet" href="/login.css">
+</head>
+<body>
+  <main class="login-shell">
+    <section class="login-card">
+      <div class="login-brand"><span>◉</span><div><strong>SERVER CONTROL</strong><small>SECURE ACCESS</small></div></div>
+      <div class="login-copy">
+        <span class="secure-pill">● SESSION PROTECTED</span>
+        <h1>Welcome back</h1>
+        <p>Sign in with your dashboard account to manage this server.</p>
+      </div>
+      <form id="login-form">
+        <label>Username<input id="username" name="username" autocomplete="username" required autofocus></label>
+        <label>Password<input id="password" name="password" type="password" autocomplete="current-password" required></label>
+        <div id="login-error" role="alert"></div>
+        <button type="submit">Sign in <span>→</span></button>
+      </form>
+      <footer><span>Encrypted session cookie</span><span>Rate limited</span><span>No tracking</span></footer>
+    </section>
+    <aside>
+      <div class="orb"></div>
+      <p>UBUNTU · DEBIAN · FEDORA · ARCH · OPENSUSE</p>
+    </aside>
+  </main>
+  <script src="/login.js"></script>
+</body>
+</html>

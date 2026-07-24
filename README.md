@@ -18,9 +18,9 @@ Docker-Container und verwendet ausschließlich die Python-Standardbibliothek.
 - Live-Werte im 500-ms-Takt
 - englisches Basis-UI mit Deutsch, Französisch, Spanisch, Italienisch,
   Portugiesisch, Niederländisch und Polnisch
-- sichere Diagnose-CLI ohne privilegierten Host-Shell-Zugriff
+- vollständiges interaktives Host-Terminal über eine echte SSH-Sitzung
 - responsives Web-UI für Desktop, Tablet und Smartphone
-- optionale HTTP-Basic-Anmeldung
+- Dashboard-Login mit zeitlich begrenzter Session, CSRF-Schutz und Rate-Limit
 - Read-only-Dateisystem und Healthcheck im Container
 
 ## Start
@@ -31,9 +31,8 @@ docker compose up -d --build
 ```
 
 Danach ist das Dashboard unter `http://SERVER-IP:8080` erreichbar. Das Image
-wird lokal als `ubuntu-dashboard:latest` gebaut. Die sichtbare App-Version ist
-in `compose.yml` sowohl als Build-Argument als auch als Umgebungsvariable
-eingetragen.
+wird lokal als `ubuntu-dashboard:latest` gebaut. Die sichtbare App-Version
+stammt direkt aus dem Image, damit eine alte Compose sie nicht überschreibt.
 
 ## In Arcane starten
 
@@ -46,9 +45,10 @@ ghcr.io/maomao63/ubuntu-dashboard:latest
 
 In Arcane unter **Compose Projects** ein neues Projekt erstellen, den gesamten
 Inhalt der Datei einfügen und starten. `pull_policy: always` sorgt dafür, dass
-ein Redeploy stets das aktuelle `:latest`-Image lädt. Für eine Anmeldung am
-Dashboard selbst werden `DASHBOARD_USER` und `DASHBOARD_PASSWORD` direkt in der
-Compose gesetzt.
+ein Redeploy stets das aktuelle `:latest`-Image lädt. Vor dem Start in Arcane
+unbedingt `DASHBOARD_USER` und `DASHBOARD_PASSWORD` als Umgebungsvariablen auf
+eigene, starke Werte setzen. Die in der Compose enthaltenen Fallback-Werte sind
+nur dafür gedacht, einen ersten lokalen Start zu ermöglichen.
 
 ## Bereits gebautes Image verwenden
 
@@ -65,7 +65,9 @@ Der Docker-Socket erlaubt dem Dashboard bewusst die Verwaltung von Containern
 und ist damit ein privilegierter Zugriff auf den Docker-Dienst. Das Dashboard
 sollte nicht direkt ins Internet gestellt werden. Im Heimnetz mindestens
 `DASHBOARD_USER` und `DASHBOARD_PASSWORD` in `.env` setzen; für externen Zugriff
-einen Reverse Proxy mit HTTPS und zusätzlicher Authentifizierung verwenden.
+einen Reverse Proxy mit HTTPS verwenden und dann `COOKIE_SECURE=true` setzen.
+Der Login erzeugt eine zufällige, nur per HttpOnly-Cookie zugängliche Session,
+prüft schreibende Requests mit einem CSRF-Token und begrenzt Fehlversuche.
 
 Der Host wird unter `/host` nur lesbar eingebunden. Schreibende Aktionen gibt
 es ausschließlich über die drei freigegebenen Docker-Endpunkte. Mit
@@ -79,19 +81,24 @@ Zusätzliche Ordner können mit `SHARE_ROOTS=/data/media,/data/backups` angegebe
 werden. Der Dateimanager zeigt Namen, Ordnerstruktur, Größen und Änderungszeiten,
 kann durch den Read-only-Host-Mount aber keine Dateien verändern.
 
-Die integrierte CLI ist absichtlich eine Diagnosekonsole mit erlaubten,
-lesenden Befehlen. Sie stellt keinen beliebigen Root-Shellzugriff bereit und
-benötigt deshalb weder `privileged: true` noch Zugriff auf den Host-PID-Namespace.
+Die integrierte CLI öffnet eine echte SSH-Sitzung zum Host und kann damit alles,
+was derselbe Benutzer bei einer normalen SSH-Anmeldung kann – einschließlich
+`sudo`, sofern der Benutzer dafür berechtigt ist. Auf dem Host muss dazu ein
+SSH-Server laufen und Passwort-/Keyboard-Interactive-Anmeldung zulassen. Das
+Dashboard verbindet sich standardmäßig mit `host.docker.internal:22`; Ziel und
+Port können über `SSH_HOST` und `SSH_PORT` geändert werden. Das SSH-Passwort
+wird nur an den lokalen SSH-Prozess weitergereicht und weder geloggt noch
+gespeichert.
 
 ## Version veröffentlichen
 
-Für eine neue Version beide Vorkommen von `1.3.0` in `compose.yml` ändern und
+Für eine neue Version Build-Argument und Workflow-Tag ändern und
 anschließend bauen:
 
 ```bash
 docker compose build --pull
-docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.3.0
+docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.4.0
 docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:latest
-docker push ghcr.io/dein-name/ubuntu-dashboard:1.3.0
+docker push ghcr.io/dein-name/ubuntu-dashboard:1.4.0
 docker push ghcr.io/dein-name/ubuntu-dashboard:latest
 ```

@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
 import base64
+import fcntl
+import hashlib
+import hmac
 import json
 import os
 import platform
+import pty
 import re
+import secrets
+import select
+import signal
 import socket
+import struct
 import subprocess
+import termios
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -15,13 +24,19 @@ from urllib.parse import parse_qs, unquote, urlparse
 ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
-VERSION = os.getenv("APP_VERSION", "1.3.0")
+VERSION = os.getenv("APP_VERSION", "1.4.0")
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 ALLOW_ACTIONS = os.getenv("ALLOW_DOCKER_ACTIONS", "true").lower() == "true"
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+SESSION_TTL = int(os.getenv("SESSION_TTL", "43200"))
+SSH_HOST = os.getenv("SSH_HOST", "host.docker.internal")
+SSH_PORT = int(os.getenv("SSH_PORT", "22"))
 STARTED = time.time()
 _sample = {"at": 0, "cpu": None, "net": None}
 _cache = {}
+_sessions = {}
+_login_attempts = {}
 
 
 def read_text(path, default=""):
@@ -43,6 +58,71 @@ def cached(key, ttl, loader):
     value = loader()
     _cache[key] = (now, value)
     return value
+
+
+def new_session(username):
+    now = time.time()
+    for expired_token, stored in list(_sessions.items()):
+        if stored["expires"] <= now:
+            _sessions.pop(expired_token, None)
+    token = secrets.token_urlsafe(36)
+    session = {
+        "username": username,
+        "expires": now + SESSION_TTL,
+        "csrf": secrets.token_urlsafe(24),
+    }
+    _sessions[token] = session
+    return token, session
+
+
+def cookie_value(header, name):
+    for item in (header or "").split(";"):
+        key, _, value = item.strip().partition("=")
+        if key == name:
+            return value
+    return ""
+
+
+def recv_exact(sock, length):
+    data = b""
+    while len(data) < length:
+        chunk = sock.recv(length - len(data))
+        if not chunk:
+            return b""
+        data += chunk
+    return data
+
+
+def websocket_read(sock):
+    header = recv_exact(sock, 2)
+    if len(header) < 2:
+        return None, b""
+    first, second = header
+    opcode = first & 0x0F
+    length = second & 0x7F
+    if length == 126:
+        length = struct.unpack("!H", recv_exact(sock, 2))[0]
+    elif length == 127:
+        length = struct.unpack("!Q", recv_exact(sock, 8))[0]
+    mask = recv_exact(sock, 4) if second & 0x80 else b""
+    data = recv_exact(sock, length)
+    if mask:
+        data = bytes(value ^ mask[index % 4] for index, value in enumerate(data))
+    return opcode, data
+
+
+def websocket_send(sock, data, opcode=1):
+    if isinstance(data, str):
+        data = data.encode()
+    length = len(data)
+    header = bytes([0x80 | opcode])
+    if length < 126:
+        header += bytes([length])
+    elif length < 65536:
+        header += bytes([126]) + struct.pack("!H", length)
+    else:
+        header += bytes([127]) + struct.pack("!Q", length)
+    sock.sendall(header + data)
 
 
 def bytes_label(value):
@@ -427,23 +507,17 @@ def share_roots():
     if not roots:
         distro_id = os_release_info().get("ID", "linux").lower()
         distro_paths = {
-            "ubuntu": ("/srv/samba", "/srv/nfs", "/srv/shares", "/mnt", "/media", "/data", "/storage"),
-            "debian": ("/srv/samba", "/srv/nfs", "/srv/shares", "/mnt", "/media", "/data", "/storage"),
-            "fedora": ("/srv/samba", "/srv/nfs", "/var/lib/samba", "/mnt", "/media", "/data", "/storage"),
-            "rocky": ("/srv/samba", "/srv/nfs", "/var/lib/samba", "/mnt", "/media", "/data", "/storage"),
-            "rhel": ("/srv/samba", "/srv/nfs", "/var/lib/samba", "/mnt", "/media", "/data", "/storage"),
-            "arch": ("/srv/samba", "/srv/nfs", "/mnt", "/media", "/data", "/storage"),
-            "manjaro": ("/srv/samba", "/srv/nfs", "/mnt", "/media", "/data", "/storage"),
-            "opensuse": ("/srv/samba", "/srv/nfs", "/mnt", "/media", "/data", "/storage"),
+            "ubuntu": ("/home", "/srv", "/mnt", "/media", "/opt", "/data", "/storage"),
+            "debian": ("/home", "/srv", "/mnt", "/media", "/opt", "/data", "/storage"),
+            "fedora": ("/home", "/srv", "/var/lib/samba", "/mnt", "/media", "/opt", "/data", "/storage"),
+            "rocky": ("/home", "/srv", "/var/lib/samba", "/mnt", "/media", "/opt", "/data", "/storage"),
+            "rhel": ("/home", "/srv", "/var/lib/samba", "/mnt", "/media", "/opt", "/data", "/storage"),
+            "arch": ("/home", "/srv", "/mnt", "/media", "/opt", "/data", "/storage"),
+            "manjaro": ("/home", "/srv", "/mnt", "/media", "/opt", "/data", "/storage"),
+            "opensuse": ("/home", "/srv", "/mnt", "/media", "/opt", "/data", "/storage"),
         }
-        for base_path in distro_paths.get(distro_id, ("/srv", "/mnt", "/media", "/data", "/storage")):
-            base = host_path(base_path)
-            try:
-                children = sorted((item for item in base.iterdir() if item.is_dir()), key=lambda p: p.name.lower())
-                for child in children[:30]:
-                    add(child.name, f"{base_path}/{child.name}", f"{distro_id.title()}-Pfad")
-            except OSError:
-                pass
+        for base_path in distro_paths.get(distro_id, ("/home", "/srv", "/mnt", "/media", "/opt", "/data", "/storage")):
+            add(Path(base_path).name or "root", base_path, f"{distro_id.title()}-Pfad")
     return roots
 
 
@@ -569,32 +643,87 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         print(f"[web] {self.address_string()} {fmt % args}")
 
-    def authenticated(self):
+    def current_session(self):
         if not APP_USER or not APP_PASSWORD:
-            return True
-        header = self.headers.get("Authorization", "")
-        try:
-            value = base64.b64decode(header.removeprefix("Basic ")).decode()
-            return value == f"{APP_USER}:{APP_PASSWORD}"
-        except Exception:
-            return False
+            return {"username": "local", "csrf": "", "auth": "open"}
+        token = cookie_value(self.headers.get("Cookie"), "dashboard_session")
+        session = _sessions.get(token)
+        if session and session["expires"] > time.time():
+            session["expires"] = time.time() + SESSION_TTL
+            session["auth"] = "session"
+            return session
+        return None
 
-    def send_json(self, payload, status=200):
+    def authenticated(self):
+        return self.current_session() is not None
+
+    def csrf_valid(self, session):
+        return (
+            not APP_USER
+            or session.get("auth") == "open"
+            or hmac.compare_digest(self.headers.get("X-CSRF-Token", ""), session.get("csrf", "invalid"))
+        )
+
+    def security_headers(self):
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "SAMEORIGIN")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; img-src 'self' https://cdn.simpleicons.org data:; "
+            "style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws: wss:"
+        )
+
+    def send_json(self, payload, status=200, headers=None):
         data = json.dumps(payload, ensure_ascii=False).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        self.security_headers()
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
         self.end_headers()
         self.wfile.write(data)
 
     def do_GET(self):
-        if not self.authenticated():
-            self.send_response(401)
-            self.send_header("WWW-Authenticate", 'Basic realm="Ubuntu Dashboard"')
+        path = urlparse(self.path).path
+        if path == "/ws/ssh":
+            self.handle_ssh_websocket()
+            return
+        if path == "/api/health":
+            self.send_json({"status": "ok", "version": VERSION})
+            return
+        if path == "/api/session":
+            session = self.current_session()
+            self.send_json({
+                "authenticated": bool(session),
+                "username": session.get("username") if session else None,
+                "csrf": session.get("csrf", "") if session else "",
+                "authRequired": bool(APP_USER and APP_PASSWORD),
+                "sshHost": SSH_HOST,
+                "sshPort": SSH_PORT,
+            }, 200 if session else 401)
+            return
+        public_files = ("/login.html", "/login.css", "/login.js")
+        session = self.current_session()
+        if not session:
+            if path in public_files:
+                self.serve_static(path)
+            elif path.startswith("/api/"):
+                self.send_json({"error": "Authentication required"}, 401)
+            else:
+                self.send_response(302)
+                self.send_header("Location", "/login.html")
+                self.security_headers()
+                self.end_headers()
+            return
+        if path == "/login.html":
+            self.send_response(302)
+            self.send_header("Location", "/")
             self.end_headers()
             return
-        path = urlparse(self.path).path
         if path == "/api/overview":
             self.send_json({
                 "version": VERSION,
@@ -615,18 +744,31 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(shares_info(share, relative))
             except ValueError as exc:
                 self.send_json({"error": str(exc)}, 400)
-        elif path == "/api/health":
-            self.send_json({"status": "ok", "version": VERSION})
         elif path.startswith("/api/"):
             self.send_json({"error": "Nicht gefunden"}, 404)
         else:
             self.serve_static(path)
 
     def do_POST(self):
-        if not self.authenticated():
-            self.send_json({"error": "Nicht angemeldet"}, 401)
-            return
         path = urlparse(self.path).path
+        if path == "/api/login":
+            self.handle_login()
+            return
+        session = self.current_session()
+        if not session:
+            self.send_json({"error": "Authentication required"}, 401)
+            return
+        if not self.csrf_valid(session):
+            self.send_json({"error": "Invalid CSRF token"}, 403)
+            return
+        if path == "/api/logout":
+            token = cookie_value(self.headers.get("Cookie"), "dashboard_session")
+            _sessions.pop(token, None)
+            cookie = "dashboard_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"
+            if COOKIE_SECURE:
+                cookie += "; Secure"
+            self.send_json({"ok": True}, headers={"Set-Cookie": cookie})
+            return
         if path == "/api/cli":
             try:
                 length = min(int(self.headers.get("Content-Length", "0")), 4096)
@@ -651,6 +793,161 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             self.send_json({"error": str(exc)}, 409)
 
+    def handle_login(self):
+        address = self.client_address[0]
+        now = time.time()
+        attempts = [stamp for stamp in _login_attempts.get(address, []) if now - stamp < 600]
+        if len(attempts) >= 5:
+            self.send_json({"error": "Too many login attempts. Try again later."}, 429)
+            return
+        try:
+            length = min(int(self.headers.get("Content-Length", "0")), 4096)
+            payload = json.loads(self.rfile.read(length) or b"{}")
+            username = str(payload.get("username", ""))
+            password = str(payload.get("password", ""))
+        except (ValueError, json.JSONDecodeError):
+            self.send_json({"error": "Invalid request"}, 400)
+            return
+        valid = (
+            bool(APP_USER and APP_PASSWORD)
+            and hmac.compare_digest(username, APP_USER)
+            and hmac.compare_digest(password, APP_PASSWORD)
+        )
+        if not APP_USER or not APP_PASSWORD:
+            valid, username = True, "local"
+        if not valid:
+            attempts.append(now)
+            _login_attempts[address] = attempts
+            time.sleep(min(1.5, 0.2 * len(attempts)))
+            self.send_json({"error": "Invalid username or password"}, 401)
+            return
+        _login_attempts.pop(address, None)
+        token, session = new_session(username)
+        cookie = (
+            f"dashboard_session={token}; Path=/; HttpOnly; SameSite=Strict; "
+            f"Max-Age={SESSION_TTL}"
+        )
+        if COOKIE_SECURE:
+            cookie += "; Secure"
+        self.send_json({
+            "ok": True,
+            "username": username,
+            "csrf": session["csrf"],
+        }, headers={"Set-Cookie": cookie})
+
+    def handle_ssh_websocket(self):
+        session = self.current_session()
+        if not session:
+            self.send_error(401, "Authentication required")
+            return
+        if self.headers.get("Upgrade", "").lower() != "websocket":
+            self.send_error(400, "WebSocket required")
+            return
+        origin = self.headers.get("Origin", "")
+        host = self.headers.get("Host", "")
+        if origin and urlparse(origin).netloc != host:
+            self.send_error(403, "Origin rejected")
+            return
+        key = self.headers.get("Sec-WebSocket-Key", "")
+        accept = base64.b64encode(hashlib.sha1(
+            (key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()
+        ).digest()).decode()
+        self.send_response(101, "Switching Protocols")
+        self.send_header("Upgrade", "websocket")
+        self.send_header("Connection", "Upgrade")
+        self.send_header("Sec-WebSocket-Accept", accept)
+        self.end_headers()
+        self.close_connection = True
+        process = None
+        master_fd = None
+        try:
+            opcode, raw = websocket_read(self.connection)
+            if opcode != 1:
+                websocket_send(self.connection, json.dumps({"type": "error", "message": "SSH login required"}))
+                return
+            request = json.loads(raw.decode())
+            if request.get("type") != "auth":
+                raise ValueError("SSH login required")
+            username = str(request.get("username", ""))
+            password = str(request.get("password", ""))
+            if not re.fullmatch(r"[A-Za-z0-9_.@-]{1,64}", username) or not password or len(password) > 1024:
+                raise ValueError("Invalid SSH credentials")
+            cols = max(40, min(300, int(request.get("cols", 100))))
+            rows = max(12, min(100, int(request.get("rows", 30))))
+            master_fd, slave_fd = pty.openpty()
+            fcntl.ioctl(master_fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+            password_read, password_write = os.pipe()
+            os.write(password_write, password.encode() + b"\n")
+            os.close(password_write)
+            environment = os.environ.copy()
+            environment["TERM"] = "xterm-256color"
+            process = subprocess.Popen([
+                "sshpass", "-d", str(password_read),
+                "ssh", "-tt",
+                "-p", str(SSH_PORT),
+                "-o", "PreferredAuthentications=password,keyboard-interactive",
+                "-o", "PubkeyAuthentication=no",
+                "-o", "StrictHostKeyChecking=accept-new",
+                "-o", "UserKnownHostsFile=/tmp/ssh_known_hosts",
+                "-o", "ServerAliveInterval=30",
+                "-o", "ServerAliveCountMax=3",
+                f"{username}@{SSH_HOST}",
+            ], stdin=slave_fd, stdout=slave_fd, stderr=slave_fd, close_fds=True,
+               pass_fds=(password_read,), env=environment, start_new_session=True)
+            os.close(password_read)
+            os.close(slave_fd)
+            websocket_send(self.connection, json.dumps({
+                "type": "connected", "host": SSH_HOST, "port": SSH_PORT, "username": username
+            }))
+            started = time.time()
+            while process.poll() is None and time.time() - started < 14400:
+                readable, _, _ = select.select([master_fd, self.connection], [], [], 1)
+                if master_fd in readable:
+                    try:
+                        output = os.read(master_fd, 65536)
+                    except OSError:
+                        break
+                    if output:
+                        websocket_send(self.connection, output, opcode=2)
+                if self.connection in readable:
+                    opcode, raw = websocket_read(self.connection)
+                    if opcode in (None, 8):
+                        break
+                    if opcode == 9:
+                        websocket_send(self.connection, raw, opcode=10)
+                        continue
+                    if opcode != 1:
+                        continue
+                    message = json.loads(raw.decode())
+                    if message.get("type") == "input":
+                        os.write(master_fd, str(message.get("data", "")).encode())
+                    elif message.get("type") == "resize":
+                        cols = max(40, min(300, int(message.get("cols", cols))))
+                        rows = max(12, min(100, int(message.get("rows", rows))))
+                        fcntl.ioctl(master_fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+            if process.poll() is not None:
+                websocket_send(self.connection, json.dumps({"type": "exit", "code": process.returncode}))
+        except Exception as exc:
+            try:
+                websocket_send(self.connection, json.dumps({"type": "error", "message": str(exc)}))
+            except OSError:
+                pass
+        finally:
+            if process and process.poll() is None:
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                    process.wait(timeout=2)
+                except Exception:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+            if master_fd is not None:
+                try:
+                    os.close(master_fd)
+                except OSError:
+                    pass
+
     def serve_static(self, path):
         relative = "index.html" if path in ("", "/") else unquote(path).lstrip("/")
         target = (ROOT / "web" / relative).resolve()
@@ -672,6 +969,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-cache" if target.suffix == ".html" else "public, max-age=3600")
+        self.security_headers()
         self.end_headers()
         self.wfile.write(data)
 

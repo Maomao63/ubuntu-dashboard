@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0e13">
   <title>Ubuntu Server Dashboard</title>
+  <link rel="stylesheet" href="/vendor/xterm.css">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -49,6 +50,7 @@
           <b data-i18n="layout.label">Layout</b>
         </label>
         <span class="version-badge" id="version-badge">v– · latest</span>
+        <button class="account-button" id="logout" title="Sign out"><span id="account-name">Account</span> ↗</button>
         <select id="language-select" class="language-select" aria-label="Language">
           <option value="en">EN · English</option>
           <option value="de">DE · Deutsch</option>
@@ -186,27 +188,36 @@
 
     <section class="page" id="page-cli">
       <div class="section-intro">
-        <div><h2 data-i18n="cli.title">Diagnostic CLI</h2><p data-i18n="cli.description">Safe read-only commands for this host.</p></div>
-        <span class="read-only-badge" data-i18n="common.safeMode">SAFE MODE</span>
+        <div><h2 data-i18n="cli.title">Host SSH terminal</h2><p data-i18n="cli.description">A complete shell session using your regular SSH account.</p></div>
+        <span class="ssh-status" id="ssh-status"><i></i> DISCONNECTED</span>
       </div>
       <div class="panel terminal-panel">
         <div class="terminal-head">
           <span><i></i><i></i><i></i></span>
           <strong id="terminal-title">dashboard@server:~</strong>
-          <button class="text-button" id="terminal-clear" data-i18n="cli.clear">Clear</button>
+          <button class="text-button" id="terminal-disconnect" data-i18n="cli.disconnect" disabled>Disconnect</button>
         </div>
-        <div id="terminal-output" class="terminal-output"><div class="terminal-line system">Ubuntu Control diagnostic CLI · Type 'help'</div></div>
-        <form id="terminal-form" class="terminal-input-line">
-          <span>$</span>
-          <input id="terminal-input" autocomplete="off" spellcheck="false" placeholder="help" aria-label="Command">
-          <button type="submit" data-i18n="cli.run">Run</button>
-        </form>
+        <div class="ssh-terminal-wrap">
+          <div id="ssh-terminal" aria-label="SSH terminal"></div>
+          <form id="ssh-login" class="ssh-login-card" autocomplete="off">
+            <span class="ssh-login-icon">&gt;_</span>
+            <h3 data-i18n="cli.connectTitle">Connect to the server</h3>
+            <p data-i18n="cli.credentials">Use your host SSH account. The password is used only for this connection.</p>
+            <label><span data-i18n="cli.target">SSH target</span><input id="ssh-host" value="host.docker.internal:22" disabled></label>
+            <label><span data-i18n="cli.username">SSH username</span><input id="ssh-username" required autocomplete="username" placeholder="e.g. ubuntu"></label>
+            <label><span data-i18n="cli.password">SSH password</span><input id="ssh-password" required type="password" autocomplete="current-password"></label>
+            <button type="submit" data-i18n="cli.connect">Start SSH session</button>
+            <small id="ssh-error" role="alert"></small>
+          </form>
+        </div>
       </div>
     </section>
   </main>
 
   <div id="toast" role="status"></div>
   <script src="/i18n.js"></script>
+  <script src="/vendor/xterm.js"></script>
+  <script src="/vendor/addon-fit.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

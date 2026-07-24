@@ -7,11 +7,16 @@ services:
     ports:
       - "8080:8080"
     environment:
-      APP_VERSION: "1.3.0"
-      DASHBOARD_USER: "mao"
-      DASHBOARD_PASSWORD: "qwer"
+      DASHBOARD_USER: "${DASHBOARD_USER:-admin}"
+      DASHBOARD_PASSWORD: "${DASHBOARD_PASSWORD:-change-this-password-now}"
       ALLOW_DOCKER_ACTIONS: "true"
       SHARE_ROOTS: ""
+      SSH_HOST: "host.docker.internal"
+      SSH_PORT: "22"
+      COOKIE_SECURE: "false"
+      SESSION_TTL: "43200"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - /:/host:ro
       - /var/run/docker.sock:/var/run/docker.sock

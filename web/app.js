@@ -9,6 +9,11 @@ let selectedShare = null;
 let selectedPath = "";
 let currentPage = "overview";
 let currentLanguage = localStorage.getItem("ubuntu-dashboard-language") || "en";
+let csrfToken = "";
+let sessionInfo = null;
+let sshSocket = null;
+let sshTerminal = null;
+let sshFit = null;
 
 function t(key) {
   return window.I18N?.[currentLanguage]?.[key] ?? window.I18N?.en?.[key] ?? key;
@@ -84,7 +89,13 @@ function setPage(name) {
   if (name === "processes") loadProcesses();
   if (name === "logs") loadLogs();
   if (name === "shares") loadShares(selectedShare, selectedPath);
-  if (name === "cli") $("#terminal-input").focus();
+  if (name === "cli") {
+    requestAnimationFrame(() => {
+      sshFit?.fit();
+      if (sshSocket?.readyState === WebSocket.OPEN) sshTerminal?.focus();
+      else $("#ssh-username").focus();
+    });
+  }
 }
 
 $$(".nav").forEach(button => button.addEventListener("click", () => setPage(button.dataset.page)));
@@ -234,7 +245,9 @@ function render(data) {
   $("#distro-name").textContent = system.distro.name.toUpperCase();
   $("#distro-logo").src = `https://cdn.simpleicons.org/${encodeURIComponent(system.distro.icon)}/${system.distro.color.replace("#", "")}`;
   document.documentElement.style.setProperty("--brand", system.distro.color);
-  $("#terminal-title").textContent = `${system.distro.id}-control@${system.hostname}:~`;
+  if (!sshSocket || sshSocket.readyState !== WebSocket.OPEN) {
+    $("#terminal-title").textContent = `${system.distro.id}-control@${system.hostname}:~`;
+  }
   $("#hostname").textContent = system.hostname;
   $("#os").textContent = system.os;
   $("#kernel").textContent = system.kernel;
@@ -312,7 +325,10 @@ async function dockerAction(button) {
   button.disabled = true;
   button.textContent = "…";
   try {
-    const response = await fetch(`/api/docker/${button.dataset.id}/${action}`, {method: "POST"});
+    const response = await fetch(`/api/docker/${button.dataset.id}/${action}`, {
+      method: "POST",
+      headers: {"X-CSRF-Token": csrfToken}
+    });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Aktion fehlgeschlagen");
     toast(`Container wird ${actionNames[action]}`);
@@ -406,45 +422,117 @@ async function loadLogs() {
   } catch (error) { $("#log-output").textContent = error.message; }
 }
 
-function terminalLine(text, type = "") {
-  const line = document.createElement("div");
-  line.className = `terminal-line ${type}`;
-  line.textContent = text;
-  $("#terminal-output").append(line);
-  $("#terminal-output").scrollTop = $("#terminal-output").scrollHeight;
+function setSshStatus(state, text) {
+  $("#ssh-status").className = `ssh-status ${state}`;
+  $("#ssh-status").innerHTML = `<i></i> ${escapeHtml(text)}`;
 }
 
-$("#terminal-clear").addEventListener("click", () => {
-  $("#terminal-output").innerHTML = "";
-  $("#terminal-input").focus();
-});
-$("#terminal-form").addEventListener("submit", async event => {
-  event.preventDefault();
-  const input = $("#terminal-input");
-  const command = input.value.trim();
-  if (!command) return;
-  input.value = "";
-  terminalLine(command, "command");
-  if (command.toLowerCase() === "clear") {
-    $("#terminal-output").innerHTML = "";
+function closeSsh(showLogin = true) {
+  if (sshSocket) {
+    const socket = sshSocket;
+    sshSocket = null;
+    if (socket.readyState < WebSocket.CLOSING) socket.close();
+  }
+  $("#terminal-disconnect").disabled = true;
+  setSshStatus("", t("cli.disconnected"));
+  if (showLogin) $("#ssh-login").classList.remove("hidden");
+}
+
+function setupSshTerminal() {
+  if (!window.Terminal || !window.FitAddon) {
+    $("#ssh-error").textContent = "Terminal-Komponente konnte nicht geladen werden.";
     return;
   }
-  input.disabled = true;
-  try {
-    const response = await fetch("/api/cli", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({command})
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Command failed");
-    terminalLine(data.output);
-  } catch (error) {
-    terminalLine(error.message, "error");
-  } finally {
-    input.disabled = false;
-    input.focus();
-  }
+  sshTerminal = new Terminal({
+    cursorBlink: true,
+    convertEol: false,
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+    fontSize: 14,
+    lineHeight: 1.18,
+    scrollback: 5000,
+    theme: {
+      background: "#090c10", foreground: "#d7dde5", cursor: "#f0764f",
+      selectionBackground: "#f0764f55", black: "#11161c", brightBlack: "#697380"
+    }
+  });
+  sshFit = new FitAddon.FitAddon();
+  sshTerminal.loadAddon(sshFit);
+  sshTerminal.open($("#ssh-terminal"));
+  sshTerminal.writeln("\x1b[38;5;245mReady for an encrypted SSH connection to the host.\x1b[0m");
+  sshTerminal.onData(data => {
+    if (sshSocket?.readyState === WebSocket.OPEN) {
+      sshSocket.send(JSON.stringify({type: "input", data}));
+    }
+  });
+  const resize = () => {
+    if (!sshFit || currentPage !== "cli") return;
+    sshFit.fit();
+    if (sshSocket?.readyState === WebSocket.OPEN) {
+      sshSocket.send(JSON.stringify({type: "resize", cols: sshTerminal.cols, rows: sshTerminal.rows}));
+    }
+  };
+  new ResizeObserver(resize).observe($("#ssh-terminal"));
+  window.addEventListener("resize", resize);
+}
+
+$("#ssh-login").addEventListener("submit", event => {
+  event.preventDefault();
+  if (sshSocket) closeSsh(false);
+  const username = $("#ssh-username").value.trim();
+  const passwordField = $("#ssh-password");
+  const password = passwordField.value;
+  $("#ssh-error").textContent = "";
+  $("#ssh-login button").disabled = true;
+  setSshStatus("connecting", t("cli.connecting"));
+  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  const socket = new WebSocket(`${protocol}//${location.host}/ws/ssh`);
+  socket.binaryType = "arraybuffer";
+  sshSocket = socket;
+  socket.addEventListener("open", () => {
+    sshFit.fit();
+    socket.send(JSON.stringify({
+      type: "auth", username, password,
+      cols: sshTerminal.cols, rows: sshTerminal.rows
+    }));
+    passwordField.value = "";
+  });
+  socket.addEventListener("message", event => {
+    if (event.data instanceof ArrayBuffer) {
+      sshTerminal.write(new Uint8Array(event.data));
+      return;
+    }
+    let message;
+    try { message = JSON.parse(event.data); }
+    catch { return; }
+    if (message.type === "connected") {
+      $("#ssh-login").classList.add("hidden");
+      $("#terminal-disconnect").disabled = false;
+      $("#terminal-title").textContent = `${message.username}@${message.host}:${message.port}`;
+      setSshStatus("connected", t("cli.connected"));
+      sshTerminal.focus();
+    } else if (message.type === "error") {
+      $("#ssh-error").textContent = message.message || "SSH-Verbindung fehlgeschlagen.";
+      sshTerminal.writeln(`\r\n\x1b[31m${message.message || "SSH connection failed"}\x1b[0m`);
+      closeSsh(true);
+    } else if (message.type === "exit") {
+      sshTerminal.writeln(`\r\n\x1b[38;5;245mSSH session ended (code ${message.code}).\x1b[0m`);
+      closeSsh(true);
+    }
+  });
+  socket.addEventListener("error", () => {
+    $("#ssh-error").textContent = "WebSocket-Verbindung zum Dashboard fehlgeschlagen.";
+  });
+  socket.addEventListener("close", () => {
+    if (sshSocket === socket) closeSsh(true);
+    $("#ssh-login button").disabled = false;
+  });
+});
+
+$("#terminal-disconnect").addEventListener("click", () => closeSsh(true));
+$("#logout").addEventListener("click", async () => {
+  closeSsh(false);
+  await fetch("/api/logout", {method: "POST", headers: {"X-CSRF-Token": csrfToken}});
+  location.replace("/login.html");
 });
 
 document.addEventListener("visibilitychange", () => {
@@ -452,5 +540,24 @@ document.addEventListener("visibilitychange", () => {
   else scheduleLiveUpdate(5000);
 });
 window.addEventListener("online", () => loadOverview());
-applyLanguage(currentLanguage);
-loadOverview();
+
+async function bootstrap() {
+  try {
+    const response = await fetch("/api/session");
+    if (!response.ok) {
+      location.replace("/login.html");
+      return;
+    }
+    sessionInfo = await response.json();
+    csrfToken = sessionInfo.csrf || "";
+    $("#account-name").textContent = sessionInfo.username || "Account";
+    $("#ssh-host").value = `${sessionInfo.sshHost}:${sessionInfo.sshPort}`;
+    setupSshTerminal();
+    applyLanguage(currentLanguage);
+    loadOverview();
+  } catch {
+    location.replace("/login.html");
+  }
+}
+
+bootstrap();
