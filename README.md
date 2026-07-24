@@ -30,15 +30,18 @@ eingetragen.
 
 ## In Arcane starten
 
-Für Arcane die Datei `compose.arcane.yml` verwenden. Sie ist selbstenthalten
-und baut das lokale Image `ubuntu-dashboard:latest` direkt in Arcane. Dafür
-wird ausschließlich das öffentliche Basisimage `python:3.13-alpine` geladen;
-eine GHCR-Anmeldung oder ein öffentliches GitHub-Repository ist nicht nötig.
+Für Arcane die Datei `compose.arcane.yml` verwenden. Sie enthält keinen
+Build-Block und zieht immer das veröffentlichte Multi-Arch-Image:
+
+```text
+ghcr.io/maomao63/ubuntu-dashboard:latest
+```
 
 In Arcane unter **Compose Projects** ein neues Projekt erstellen, den gesamten
-Inhalt der Datei einfügen und starten. Der erste Start dauert etwas länger,
-weil Arcane das Image lokal baut. Für eine Anmeldung am Dashboard selbst werden
-`DASHBOARD_USER` und `DASHBOARD_PASSWORD` direkt in der Compose gesetzt.
+Inhalt der Datei einfügen und starten. `pull_policy: always` sorgt dafür, dass
+ein Redeploy stets das aktuelle `:latest`-Image lädt. Für eine Anmeldung am
+Dashboard selbst werden `DASHBOARD_USER` und `DASHBOARD_PASSWORD` direkt in der
+Compose gesetzt.
 
 ## Bereits gebautes Image verwenden
 
