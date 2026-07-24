@@ -4,6 +4,7 @@ import concurrent.futures
 import fcntl
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import platform
@@ -31,7 +32,7 @@ ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
 # Deliberately image-owned: old Compose files must not be able to override the UI version.
-VERSION = "1.12.2"
+VERSION = "1.12.3"
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 ACCOUNT_FILE = Path(os.getenv("ACCOUNT_FILE", "/data/account.json"))
@@ -603,6 +604,30 @@ def docker_info():
         }
     except Exception as exc:
         return {"available": False, "error": str(exc), "containers": [], "stacks": []}
+
+
+def docker_networks_info():
+    networks = docker_request("GET", "/networks") or []
+    result = []
+    for item in networks:
+        configs = (item.get("IPAM") or {}).get("Config") or []
+        containers = item.get("Containers") or {}
+        name = str(item.get("Name", ""))
+        result.append({
+            "id": str(item.get("Id", "")),
+            "name": name,
+            "driver": str(item.get("Driver", "unknown")),
+            "scope": str(item.get("Scope", "local")),
+            "subnets": [config.get("Subnet", "") for config in configs if config.get("Subnet")],
+            "gateways": [config.get("Gateway", "") for config in configs if config.get("Gateway")],
+            "containers": len(containers),
+            "internal": bool(item.get("Internal")),
+            "attachable": bool(item.get("Attachable")),
+            "ingress": bool(item.get("Ingress")),
+            "builtin": name in ("bridge", "host", "none") or bool(item.get("Ingress")),
+            "labels": item.get("Labels") or {},
+        })
+    return sorted(result, key=lambda item: (not item["builtin"], item["name"].lower()))
 
 
 def parse_image_reference(reference):
@@ -1849,6 +1874,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(cached("github-version", 900, github_version_info))
         elif path == "/api/docker-updates":
             self.send_json(cached("docker-updates", 900, docker_image_updates))
+        elif path == "/api/networks":
+            try:
+                self.send_json({"available": True, "networks": docker_networks_info()})
+            except Exception as exc:
+                self.send_json({"available": False, "networks": [], "error": str(exc)}, 503)
         elif path == "/api/account":
             self.send_json({
                 "username": session.get("username", "local"),
@@ -1922,6 +1952,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/notifications/test":
             self.handle_notification_test()
+            return
+        if path == "/api/networks/create":
+            self.handle_network_create()
+            return
+        if path == "/api/networks/delete":
+            self.handle_network_delete()
             return
         if path.startswith("/api/files/"):
             self.handle_file_action(path.removeprefix("/api/files/"))
@@ -2118,6 +2154,66 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": True})
         except Exception as exc:
             self.send_json({"error": f"Discord test failed: {exc}"}, 502)
+
+    def handle_network_create(self):
+        if not ALLOW_ACTIONS:
+            self.send_json({"error": "Docker actions are disabled."}, 403)
+            return
+        try:
+            length = min(int(self.headers.get("Content-Length", "0")), 8192)
+            payload = json.loads(self.rfile.read(length) or b"{}")
+            name = str(payload.get("name", "")).strip()
+            subnet_value = str(payload.get("subnet", "")).strip()
+            gateway_value = str(payload.get("gateway", "")).strip()
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,62}", name):
+                raise ValueError("Network name must contain 1–63 letters, numbers, dots, dashes or underscores.")
+            if name in ("bridge", "host", "none"):
+                raise ValueError("This name is reserved by Docker.")
+            request = {
+                "Name": name,
+                "Driver": "bridge",
+                "CheckDuplicate": True,
+                "Internal": bool(payload.get("internal")),
+                "Attachable": bool(payload.get("attachable", True)),
+                "Labels": {"io.ubuntu-dashboard.managed": "true"},
+            }
+            if subnet_value:
+                subnet = ipaddress.ip_network(subnet_value, strict=False)
+                config = {"Subnet": str(subnet)}
+                if gateway_value:
+                    gateway = ipaddress.ip_address(gateway_value)
+                    if gateway not in subnet:
+                        raise ValueError("Gateway must be inside the selected subnet.")
+                    config["Gateway"] = str(gateway)
+                request["IPAM"] = {"Driver": "default", "Config": [config]}
+            elif gateway_value:
+                raise ValueError("Enter a subnet when specifying a gateway.")
+            created = docker_request("POST", "/networks/create", request) or {}
+            self.send_json({"ok": True, "id": created.get("Id", ""), "name": name})
+        except (ValueError, RuntimeError, json.JSONDecodeError) as exc:
+            self.send_json({"error": str(exc)}, 409)
+
+    def handle_network_delete(self):
+        if not ALLOW_ACTIONS:
+            self.send_json({"error": "Docker actions are disabled."}, 403)
+            return
+        try:
+            length = min(int(self.headers.get("Content-Length", "0")), 4096)
+            payload = json.loads(self.rfile.read(length) or b"{}")
+            network_id = str(payload.get("id", "")).strip()
+            if not re.fullmatch(r"[A-Fa-f0-9]{12,64}", network_id):
+                raise ValueError("Invalid Docker network ID.")
+            network = next((item for item in docker_networks_info() if item["id"].startswith(network_id)), None)
+            if not network:
+                raise ValueError("Docker network was not found.")
+            if network["builtin"]:
+                raise ValueError("Docker's built-in networks cannot be deleted.")
+            if network["containers"]:
+                raise ValueError(f"Disconnect the {network['containers']} attached container(s) before deleting this network.")
+            docker_request("DELETE", f"/networks/{quote(network['id'], safe='')}")
+            self.send_json({"ok": True, "id": network["id"], "name": network["name"]})
+        except (ValueError, RuntimeError, json.JSONDecodeError) as exc:
+            self.send_json({"error": str(exc)}, 409)
 
     def handle_ssh_websocket(self):
         session = self.current_session()

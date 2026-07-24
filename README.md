@@ -1,6 +1,6 @@
 # Ubuntu Dashboard
 
-![Version](https://img.shields.io/badge/version-1.12.2-f05a28)
+![Version](https://img.shields.io/badge/version-1.12.3-f05a28)
 ![Image](https://img.shields.io/badge/image-ghcr.io%2Fmaomao63%2Fubuntu--dashboard-blue)
 ![Platforms](https://img.shields.io/badge/platform-linux%2Famd64%20%7C%20linux%2Farm64-2ea44f)
 [![Publish Docker image](https://github.com/Maomao63/ubuntu-dashboard/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Maomao63/ubuntu-dashboard/actions/workflows/docker-publish.yml)
@@ -42,6 +42,8 @@ host names, addresses, account names, paths or other user information.
   Containers page
 - Container start, stop and restart actions
 - Green, yellow and red Docker health indicators and registry image-update hints
+- Docker network inventory with custom bridge-network creation, protected
+  defaults and confirmation-gated deletion
 - Writable Data Browser with automatic SMB, NFS and mounted-data-root detection
 - File owner, group, symbolic permissions and octal mode display
 - Create, edit and delete folders and UTF-8 text/YAML/configuration files
@@ -304,6 +306,14 @@ Mentions and the repeat interval are configurable, and a test button verifies
 the webhook. The webhook secret is saved with file mode `0600` in the
 persistent data volume and is never returned to the browser after saving.
 
+### Docker networks
+
+The **Networks** page lists built-in, Compose and custom Docker networks with
+their driver, subnet, gateway, scope and attached-container count. Custom
+bridge networks can be created with optional IPAM settings. Built-in networks
+are protected; deleting a custom network requires typing its exact name, and
+Docker rejects removal while containers are still attached.
+
 ## Updating
 
 The Compose file tracks `:latest`. Pull and recreate the container to install a
@@ -326,6 +336,8 @@ Dashboard settings survive updates because they are stored in the named
 This dashboard intentionally has administrator-level host integrations:
 
 - the Docker socket can control Docker workloads
+- network creation and deletion use that Docker socket and require
+  `ALLOW_DOCKER_ACTIONS=true`
 - the writable `/host` mount powers the Data Browser
 - privileged mode enables hardware and SMART discovery
 - an authenticated SSH account can open a host shell

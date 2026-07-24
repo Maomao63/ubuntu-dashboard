@@ -17,6 +17,8 @@ let sshFit = null;
 let dockerUpdates = {};
 let networkHistory = {down: [], up: []};
 let metricHistory = {cpu: [], memory: []};
+let notificationState = null;
+let networkDeleteTarget = null;
 
 function t(key) {
   return window.I18N?.[currentLanguage]?.[key] ?? window.I18N?.en?.[key] ?? key;
@@ -32,6 +34,8 @@ function applyLanguage(language) {
   updateClock();
   if (overview) render(overview);
   if (currentPage === "shares") loadShares(selectedShare, selectedPath);
+  if (currentPage === "networks") loadNetworks();
+  renderDiscordStrip();
   if (sessionInfo) {
     loadVersionCheck();
   }
@@ -89,7 +93,7 @@ const toast = (message, error = false) => {
 };
 
 function setPage(name) {
-  if (!["overview", "docker", "storage", "shares", "processes", "logs", "cli", "settings"].includes(name)) name = "overview";
+  if (!["overview", "docker", "networks", "storage", "shares", "processes", "logs", "cli", "settings"].includes(name)) name = "overview";
   currentPage = name;
   if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
   $$(".page").forEach(page => page.classList.toggle("active", page.id === `page-${name}`));
@@ -98,6 +102,7 @@ function setPage(name) {
   document.body.classList.remove("menu-open");
   if (name === "processes") loadProcesses();
   if (name === "logs") loadLogs();
+  if (name === "networks") loadNetworks();
   if (name === "shares") loadShares(selectedShare, selectedPath);
   if (name === "settings") loadAccountSettings();
   if (name === "cli") {
@@ -129,21 +134,23 @@ function setupWidgetLayout() {
     });
     const save = () => localStorage.setItem(storageKey, JSON.stringify(cards().map(card => card.dataset[attribute])));
     cards().forEach(card => {
-      const controls = document.createElement("span");
-      controls.className = section ? "section-move" : "widget-move";
-      controls.innerHTML = `<button data-move="-1" title="Move left/up">←</button><button data-move="1" title="Move right/down">→</button>`;
-      card.append(controls);
-      controls.addEventListener("click", event => {
-        const button = event.target.closest("[data-move]");
-        if (!button) return;
-        event.stopPropagation();
-        const all = cards(), index = all.indexOf(card);
-        const target = all[index + Number(button.dataset.move)];
-        if (!target) return;
-        if (Number(button.dataset.move) < 0) container.insertBefore(card, target);
-        else container.insertBefore(target, card);
-        save();
-      });
+      if (!section && !card.querySelector(":scope > .widget-move")) {
+        const controls = document.createElement("span");
+        controls.className = "widget-move";
+        controls.innerHTML = `<button data-move="-1" title="Move left/up">←</button><button data-move="1" title="Move right/down">→</button>`;
+        card.append(controls);
+        controls.addEventListener("click", event => {
+          const button = event.target.closest("[data-move]");
+          if (!button) return;
+          event.stopPropagation();
+          const all = cards(), index = all.indexOf(card);
+          const target = all[index + Number(button.dataset.move)];
+          if (!target) return;
+          if (Number(button.dataset.move) < 0) container.insertBefore(card, target);
+          else container.insertBefore(target, card);
+          save();
+        });
+      }
       if (!draggable) return;
       card.addEventListener("dragstart", event => {
         if (!toggle.checked) return event.preventDefault();
@@ -167,7 +174,9 @@ function setupWidgetLayout() {
         const moving = cards().find(item => item.dataset[attribute] === id);
         if (!moving || moving === card) return;
         const rect = card.getBoundingClientRect();
-        const before = event.clientX < rect.left + rect.width / 2;
+        const before = section
+          ? event.clientY < rect.top + rect.height / 2
+          : event.clientX < rect.left + rect.width / 2;
         container.insertBefore(moving, before ? card : card.nextSibling);
         save();
       });
@@ -181,9 +190,10 @@ function setupWidgetLayout() {
     });
   }
 
-  createGroup($("#page-overview"), "[data-overview-section]", "overviewSection", "ubuntu-dashboard-sections", false, true);
+  createGroup($("#page-overview"), "[data-overview-section]", "overviewSection", "ubuntu-dashboard-sections", true, true);
   createGroup($(".metrics"), ".metric", "widget", "ubuntu-dashboard-widgets");
   createGroup($(".dashboard-grid"), ".panel", "panelWidget", "ubuntu-dashboard-panels");
+  createGroup($(".system-strip"), "[data-system-widget]", "systemWidget", "ubuntu-dashboard-system-strip");
   toggle.addEventListener("change", () => {
     groups.forEach(group => group.setEditing(toggle.checked));
     toast(toggle.checked ? t("layout.unlocked") : t("layout.saved"));
@@ -319,9 +329,7 @@ function render(data) {
   const root = system.rootFilesystem || {};
   $("#root-usage").textContent = `${root.percent || 0}%`;
   $("#root-usage-sub").textContent = `${bytes(root.used || 0)} / ${bytes(root.total || 0)}`;
-  const swapPercent = system.memory.swapTotal ? Math.round(system.memory.swapUsed / system.memory.swapTotal * 100) : 0;
-  $("#swap-usage").textContent = `${swapPercent}%`;
-  $("#swap-usage-sub").textContent = `${bytes(system.memory.swapUsed)} / ${bytes(system.memory.swapTotal)}`;
+  renderDiscordStrip();
   const diskStates = system.disks.map(disk => disk.health);
   const health = !docker.available || docker.health === "unhealthy" || diskStates.includes("critical")
     ? "critical" : docker.health === "warning" || diskStates.includes("warning") ? "warning" : "healthy";
@@ -444,6 +452,155 @@ async function dockerAction(button) {
     button.textContent = action;
   }
 }
+
+function renderDiscordStrip() {
+  const enabled = Boolean(notificationState?.enabled && notificationState?.webhookConfigured);
+  const card = $(".discord-strip-status");
+  if (!card) return;
+  card.classList.toggle("enabled", enabled);
+  card.classList.toggle("disabled", !enabled);
+  $("#discord-notification-state").textContent = enabled ? t("common.enabled") : t("common.disabled");
+  $("#discord-notification-sub").textContent = notificationState?.webhookConfigured
+    ? enabled ? t("notifications.watchdogActive") : t("notifications.watchdogPaused")
+    : t("notifications.notConfigured");
+}
+
+async function loadNotificationStatus() {
+  try {
+    const response = await fetch("/api/notifications", {cache: "no-store"});
+    if (!response.ok) return;
+    notificationState = await response.json();
+    renderDiscordStrip();
+  } catch {
+    notificationState = null;
+    renderDiscordStrip();
+  }
+}
+
+async function loadNetworks() {
+  const list = $("#network-list");
+  list.classList.add("loading");
+  list.textContent = t("networks.loading");
+  try {
+    const response = await fetch("/api/networks", {cache: "no-store"});
+    const data = await response.json();
+    if (!response.ok || !data.available) throw new Error(data.error || t("networks.unavailable"));
+    const networks = data.networks || [];
+    const custom = networks.filter(item => !item.builtin).length;
+    const attached = networks.reduce((sum, item) => sum + item.containers, 0);
+    $("#network-summary").innerHTML = `
+      <span><strong>${networks.length}</strong>${escapeHtml(t("networks.total"))}</span>
+      <span><strong>${custom}</strong>${escapeHtml(t("networks.custom"))}</span>
+      <span><strong>${attached}</strong>${escapeHtml(t("networks.attachments"))}</span>`;
+    list.classList.remove("loading");
+    list.innerHTML = networks.length ? networks.map(item => {
+      const subnet = item.subnets.join(", ") || t("networks.noSubnet");
+      const gateway = item.gateways.join(", ") || "–";
+      const composeProject = item.labels["com.docker.compose.project"];
+      const kind = item.builtin ? t("networks.system") : composeProject ? `Compose · ${composeProject}` : t("networks.customNetwork");
+      return `<article class="panel network-card ${item.builtin ? "builtin" : ""}">
+        <div class="network-card-head">
+          <span class="network-card-icon">${svgIcon("network")}</span>
+          <div><h3>${escapeHtml(item.name)}</h3><p>${escapeHtml(kind)}</p></div>
+          <span class="network-driver">${escapeHtml(item.driver)}</span>
+        </div>
+        <div class="network-card-details">
+          <div><small>${escapeHtml(t("networks.subnetLabel"))}</small><strong>${escapeHtml(subnet)}</strong></div>
+          <div><small>${escapeHtml(t("networks.gatewayLabel"))}</small><strong>${escapeHtml(gateway)}</strong></div>
+          <div><small>${escapeHtml(t("networks.scope"))}</small><strong>${escapeHtml(item.scope)}</strong></div>
+          <div><small>${escapeHtml(t("networks.connected"))}</small><strong>${item.containers}</strong></div>
+        </div>
+        <div class="network-card-foot">
+          <span class="network-flags">
+            ${item.internal ? `<i>${escapeHtml(t("networks.internal"))}</i>` : ""}
+            ${item.attachable ? `<i>${escapeHtml(t("networks.attachableShort"))}</i>` : ""}
+            ${item.builtin ? `<i>${escapeHtml(t("networks.protected"))}</i>` : ""}
+          </span>
+          <button class="network-delete action danger" data-network-delete="${escapeHtml(item.id)}" data-network-name="${escapeHtml(item.name)}" ${item.builtin ? "disabled" : ""}>
+            ${svgIcon(item.builtin ? "lock" : "trash")}<span>${escapeHtml(item.builtin ? t("networks.protected") : t("common.deleteShort"))}</span>
+          </button>
+        </div>
+      </article>`;
+    }).join("") : `<div class="panel empty-state">${escapeHtml(t("networks.none"))}</div>`;
+    $$("[data-network-delete]").forEach(button => button.addEventListener("click", () => {
+      networkDeleteTarget = {id: button.dataset.networkDelete, name: button.dataset.networkName};
+      $("#network-delete-name").textContent = networkDeleteTarget.name;
+      $("#network-delete-confirm").value = "";
+      $("#network-delete-error").textContent = "";
+      $("#network-delete-dialog").showModal();
+      $("#network-delete-confirm").focus();
+    }));
+  } catch (error) {
+    $("#network-summary").innerHTML = "";
+    list.classList.remove("loading");
+    list.innerHTML = `<div class="error-box">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+$("#new-network").addEventListener("click", () => {
+  $("#network-dialog-form").reset();
+  $("#network-attachable").checked = true;
+  $("#network-dialog-error").textContent = "";
+  $("#network-dialog").showModal();
+  $("#network-name").focus();
+});
+
+$("#network-dialog-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector(".dialog-primary");
+  button.disabled = true;
+  $("#network-dialog-error").textContent = "";
+  try {
+    const response = await fetch("/api/networks/create", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken},
+      body: JSON.stringify({
+        name: $("#network-name").value.trim(),
+        subnet: $("#network-subnet").value.trim(),
+        gateway: $("#network-gateway").value.trim(),
+        attachable: $("#network-attachable").checked,
+        internal: $("#network-internal").checked
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || t("networks.createFailed"));
+    $("#network-dialog").close();
+    toast(t("networks.created"));
+    await loadNetworks();
+  } catch (error) {
+    $("#network-dialog-error").textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("#network-delete-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector(".dialog-danger");
+  $("#network-delete-error").textContent = "";
+  if (!networkDeleteTarget || $("#network-delete-confirm").value !== networkDeleteTarget.name) {
+    $("#network-delete-error").textContent = t("networks.confirmMismatch");
+    return;
+  }
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/networks/delete", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken},
+      body: JSON.stringify({id: networkDeleteTarget.id})
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || t("networks.deleteFailed"));
+    $("#network-delete-dialog").close();
+    networkDeleteTarget = null;
+    toast(t("networks.deleted"));
+    await loadNetworks();
+  } catch (error) {
+    $("#network-delete-error").textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
 
 function shareUrl(share, path = "") {
   const params = new URLSearchParams();
@@ -796,6 +953,8 @@ async function loadAccountSettings() {
     $("#settings-avatar").textContent = (account.username || "A").charAt(0).toUpperCase();
     if (notificationResponse.ok) {
       const notifications = await notificationResponse.json();
+      notificationState = notifications;
+      renderDiscordStrip();
       $("#notifications-enabled").checked = notifications.enabled;
       $("#notification-disks").checked = notifications.diskAlerts;
       $("#notification-containers").checked = notifications.containerAlerts;
@@ -855,6 +1014,7 @@ async function saveNotifications(clearWebhook = false, showToast = true) {
     $("#webhook-state").className = "configured";
   }
   if (showToast) toast(t("notifications.saved"));
+  await loadNotificationStatus();
   return data;
 }
 
@@ -973,6 +1133,7 @@ async function bootstrap() {
     applyLanguage(currentLanguage);
     setPage(location.hash.slice(1) || "overview");
     loadOverview();
+    loadNotificationStatus();
     loadDockerUpdates();
     setInterval(loadVersionCheck, 15 * 60 * 1000);
     setInterval(loadDockerUpdates, 15 * 60 * 1000);
