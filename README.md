@@ -7,11 +7,12 @@ Docker-Container und verwendet ausschließlich die Python-Standardbibliothek.
 ## Funktionen
 
 - Live-Werte für CPU, RAM, Uptime und Netzwerk
-- Temperaturen aus Thermal-Zones und hwmon für CPU, NVMe, Mainboard, GPU und drivetemp
+- Disk-Temperaturen, Laufwerkszustand und SMART-Health für HDDs, SSDs und NVMe
 - Docker-Container anzeigen, starten, stoppen und neu starten
 - Docker-Healthstatus in Grün/Gelb/Rot und Registry-Prüfung auf neue Images
-- Lokale Datenträger und Netzwerk-Mounts mit Belegung
-- ext4/XFS, ZFS, Btrfs, md/LVM, Unraid shfs, NFS/SMB, Ceph und weitere Server-Dateisysteme
+- Unraid-Arrays mit Parity-/Datenlaufwerken und separaten Cache-Pools
+- ZFS-Pools mit VDEVs sowie Linux-md-RAIDs und einzelne Linux-Datenträger
+- Flexible Storage-Karten mit Pool- und Laufwerksbelegung statt System-Mountpoints
 - Prozesse nach Speicherbedarf
 - klassische Host-Logs aus `/var/log`
 - schreibender Data Browser für Ordner sowie UTF-8-Text-, YAML- und Konfigurationsdateien
@@ -19,7 +20,7 @@ Docker-Container und verwendet ausschließlich die Python-Standardbibliothek.
 - frei sortierbare Dashboard-Karten mit gespeichertem Layout
 - automatische Distributionserkennung und passendes Branding
 - Live-Werte im 500-ms-Takt
-- GitHub-Versionsprüfung und klickbarer SSH-Workflow für Host-Paketupdates
+- GitHub-Versionsprüfung für das Dashboard-Image
 - englisches Basis-UI mit Deutsch, Französisch, Spanisch, Italienisch,
   Portugiesisch, Niederländisch und Polnisch
 - vollständiges interaktives Host-Terminal über eine echte SSH-Sitzung
@@ -27,6 +28,12 @@ Docker-Container und verwendet ausschließlich die Python-Standardbibliothek.
 - Dashboard-Login mit zeitlich begrenzter Session, CSRF-Schutz und Rate-Limit
 - eigener Settings-Bereich zum Ändern von Benutzername und Passwort
 - Read-only-Dateisystem und Healthcheck im Container
+
+Für SMART-Daten und Temperaturen benötigt der Container direkten Zugriff auf
+die Host-Blockgeräte. Die mitgelieferten Compose-Dateien setzen deshalb
+`privileged: true`. Durch den eingebundenen Docker-Socket besitzt das Dashboard
+ohnehin administrativen Zugriff auf den Docker-Host und sollte nicht ungefiltert
+ins Internet veröffentlicht werden.
 
 ## Start
 
@@ -108,8 +115,8 @@ anschließend bauen:
 
 ```bash
 docker compose build --pull
-docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.8.0
+docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:1.9.0
 docker tag ubuntu-dashboard:latest ghcr.io/dein-name/ubuntu-dashboard:latest
-docker push ghcr.io/dein-name/ubuntu-dashboard:1.8.0
+docker push ghcr.io/dein-name/ubuntu-dashboard:1.9.0
 docker push ghcr.io/dein-name/ubuntu-dashboard:latest
 ```

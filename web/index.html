@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0e13">
   <title>Ubuntu Server Dashboard</title>
-  <link rel="stylesheet" href="/vendor/xterm.css?v=1.8.0">
-  <link rel="stylesheet" href="/styles.css?v=1.8.0">
+  <link rel="stylesheet" href="/vendor/xterm.css?v=1.9.0">
+  <link rel="stylesheet" href="/styles.css?v=1.9.0">
 </head>
 <body>
   <aside class="sidebar">
@@ -61,7 +61,6 @@
         </div>
         <div class="hero-meta">
           <div><small data-i18n="overview.uptime">UPTIME</small><strong id="uptime">–</strong></div>
-          <div class="host-updates"><small data-i18n="overview.updates">SYSTEM UPDATES</small><button id="host-updates" type="button">Checking…</button></div>
         </div>
         <label class="layout-toggle hero-layout" title="Dashboard-Karten verschieben">
           <input id="layout-edit" type="checkbox">
@@ -101,14 +100,14 @@
           </div>
           <div id="container-preview" class="container-preview skeleton-block"></div>
         </article>
-        <article class="panel" data-panel-widget="temperatures">
+        <article class="panel disk-temperature-panel" data-panel-widget="temperatures">
           <div class="panel-head">
-            <div><span class="panel-icon">♨</span><h3 data-i18n="panel.temperatures">Temperatures</h3></div>
+            <div><span class="panel-icon">♨</span><h3 data-i18n="panel.temperatures">Disk Temps</h3></div>
             <span class="live-tag">LIVE</span>
           </div>
-          <div id="temperatures" class="temperature-list empty-state">No sensor data</div>
+          <div id="temperatures" class="temperature-list empty-state">No disks detected</div>
         </article>
-        <article class="panel span-2" data-panel-widget="storage">
+        <article class="panel span-3 storage-overview-panel" data-panel-widget="storage">
           <div class="panel-head">
             <div><span class="panel-icon">▤</span><h3 data-i18n="panel.storage">Storage</h3></div>
             <button class="text-button" data-jump="storage"><span data-i18n="common.details">Details</span> →</button>
@@ -284,9 +283,9 @@
   </dialog>
 
   <div id="toast" role="status"></div>
-  <script src="/i18n.js?v=1.8.0"></script>
-  <script src="/vendor/xterm.js?v=1.8.0"></script>
-  <script src="/vendor/addon-fit.js?v=1.8.0"></script>
-  <script src="/app.js?v=1.8.0"></script>
+  <script src="/i18n.js?v=1.9.0"></script>
+  <script src="/vendor/xterm.js?v=1.9.0"></script>
+  <script src="/vendor/addon-fit.js?v=1.9.0"></script>
+  <script src="/app.js?v=1.9.0"></script>
 </body>
 </html>

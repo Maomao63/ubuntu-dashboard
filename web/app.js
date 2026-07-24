@@ -15,11 +15,6 @@ let sshSocket = null;
 let sshTerminal = null;
 let sshFit = null;
 let dockerUpdates = {};
-let hostUpdateCommand = "";
-let pendingHostUpdate = false;
-let hostUpdateRunning = false;
-let sshOutputTail = "";
-const sshTextDecoder = new TextDecoder();
 
 function t(key) {
   return window.I18N?.[currentLanguage]?.[key] ?? window.I18N?.en?.[key] ?? key;
@@ -37,7 +32,6 @@ function applyLanguage(language) {
   if (currentPage === "shares") loadShares(selectedShare, selectedPath);
   if (sessionInfo) {
     loadVersionCheck();
-    loadHostUpdates();
   }
 }
 
@@ -198,11 +192,18 @@ $("#distro-logo").addEventListener("error", event => {
 
 function storageRows(items, limit = items.length) {
   if (!items.length) return `<div class="empty-state">${t("common.noDrives")}</div>`;
-  return items.slice(0, limit).map(item => `
-    <div class="storage-row">
-      <div class="storage-name"><strong>${escapeHtml(item.mount)}</strong><small>${escapeHtml(item.device)} · ${escapeHtml(item.filesystem)}</small></div>
-      <div class="bar"><i style="width:${Math.min(item.percent, 100)}%"></i></div>
-      <small>${item.percent}%</small>
+  return items.slice(0, limit).map(group => `
+    <div class="storage-group-preview">
+      <div class="storage-group-summary">
+        <div class="storage-name"><strong>${escapeHtml(group.name)}</strong><small>${escapeHtml(group.type)} · ${group.members.length} ${t("storage.drives")}</small></div>
+        <div class="bar"><i style="width:${Math.min(group.percent, 100)}%"></i></div>
+        <small>${bytes(group.used)} / ${bytes(group.total)}</small>
+      </div>
+      <div class="storage-members-preview">${group.members.map(member => `
+        <span><i class="disk-health ${member.status}"></i><b>${escapeHtml(member.name)}</b>
+          <small>${escapeHtml(member.role)} · ${member.used !== undefined && member.role === "data" ? `${bytes(member.used)} / ${bytes(member.total || member.size)}` : bytes(member.size)}</small>
+        </span>`).join("")}
+      </div>
     </div>`).join("");
 }
 
@@ -285,16 +286,30 @@ function render(data) {
   $("#container-preview").classList.remove("skeleton-block");
   $("#container-preview").innerHTML = docker.available ? containerMini(docker.containers) : `<div class="empty-state">${escapeHtml(docker.error)}</div>`;
   $("#storage-preview").classList.remove("skeleton-block");
-  $("#storage-preview").innerHTML = storageRows(data.storage, 3);
-  $("#temperatures").innerHTML = system.temperatures.length
-    ? system.temperatures.map(temp => `<div class="temp-row"><span>${escapeHtml(temp.name)}</span><strong>${temp.value} °C</strong></div>`).join("")
-    : `<span>${t("common.noSensors")}</span>`;
-  $("#temperatures").classList.toggle("empty-state", !system.temperatures.length);
-  $("#storage-cards").innerHTML = data.storage.length ? data.storage.map(item => `
+  $("#storage-preview").innerHTML = storageRows(data.storage);
+  $("#temperatures").innerHTML = system.disks.length
+    ? system.disks.map(disk => `<div class="temp-row">
+        <i class="disk-health ${disk.health}" title="${escapeHtml(t(`health.${disk.health}`))}"></i>
+        <span><b>${escapeHtml(disk.name)}</b><small>/dev/${escapeHtml(disk.device)} · ${escapeHtml(disk.model)} · ${escapeHtml(t(`disk.${disk.state}`))} · ${escapeHtml(t(`health.${disk.health}`))}</small></span>
+        <strong>${disk.temperature === null ? "–" : `${disk.temperature} °C`}</strong>
+      </div>`).join("")
+    : `<span>${t("common.noDrives")}</span>`;
+  $("#temperatures").classList.toggle("empty-state", !system.disks.length);
+  $("#storage-cards").innerHTML = data.storage.length ? data.storage.map(group => `
     <article class="storage-card">
-      <div class="storage-card-head"><div><h3>${escapeHtml(item.mount)}</h3><p>${escapeHtml(item.device)} · ${escapeHtml(item.filesystem)}</p></div><strong>${item.percent}%</strong></div>
-      <div class="big-bar"><i style="width:${Math.min(item.percent, 100)}%"></i></div>
-      <div class="storage-stats"><span>${bytes(item.used)} belegt</span><span>${bytes(item.available)} frei · ${bytes(item.total)} gesamt</span></div>
+      <div class="storage-card-head">
+        <div><h3><i class="disk-health ${group.status}"></i>${escapeHtml(group.name)}</h3><p>${escapeHtml(group.type)} · ${group.members.length} ${t("storage.drives")}</p></div>
+        <strong>${group.percent}%</strong>
+      </div>
+      <div class="big-bar"><i style="width:${Math.min(group.percent, 100)}%"></i></div>
+      <div class="storage-stats"><span>${bytes(group.used)} ${t("storage.used")}</span><span>${bytes(group.available)} ${t("common.free")} · ${bytes(group.total)} ${t("storage.total")}</span></div>
+      <div class="storage-member-list">${group.members.map(member => `
+        <div class="storage-member">
+          <i class="disk-health ${member.status}"></i>
+          <div><b>${escapeHtml(member.name)}</b><small>${escapeHtml(member.vdev || member.role)} · /dev/${escapeHtml(member.device)}</small></div>
+          <span>${member.temperature === null ? "" : `${member.temperature} °C · `}${member.used !== undefined && member.role === "data" ? `${bytes(member.used)} / ${bytes(member.total || member.size)}` : bytes(member.size)}</span>
+        </div>`).join("")}
+      </div>
     </article>`).join("") : `<div class="error-box">${t("common.noDrives")}</div>`;
   renderContainers(docker);
   $("#updated").textContent = `${t("live.synced")} ${new Date().toLocaleTimeString(currentLanguage, {hour: "2-digit", minute: "2-digit", second: "2-digit"})}`;
@@ -341,49 +356,6 @@ async function loadVersionCheck() {
   }
 }
 
-function renderHostUpdates(data) {
-  hostUpdateCommand = data.command || "";
-  if (data.count === null) {
-      $("#host-updates").textContent = t("updates.unavailable");
-      $("#host-updates").className = "unknown";
-  } else if (data.count > 0) {
-    $("#host-updates").textContent = `${data.count} ${t("updates.available")}`;
-    $("#host-updates").className = "available";
-  } else {
-    $("#host-updates").textContent = `✓ ${t("updates.current")}`;
-    $("#host-updates").className = "current";
-  }
-}
-
-async function loadHostUpdates() {
-  try {
-    const response = await fetch("/api/host-updates", {cache: "no-store"});
-    renderHostUpdates(await response.json());
-  } catch {
-    $("#host-updates").textContent = t("updates.unavailable");
-    $("#host-updates").className = "unknown";
-  }
-}
-
-async function refreshHostUpdates() {
-  $("#host-updates").textContent = t("updates.rechecking");
-  $("#host-updates").className = "unknown";
-  try {
-    const response = await fetch("/api/host-updates/refresh", {
-      method: "POST",
-      headers: {"X-CSRF-Token": csrfToken}
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Update check failed");
-    renderHostUpdates(data);
-    toast(data.count ? `${data.count} ${t("updates.available")}` : t("updates.current"));
-  } catch (error) {
-    $("#host-updates").textContent = t("updates.unavailable");
-    $("#host-updates").className = "unknown";
-    toast(error.message, true);
-  }
-}
-
 async function loadDockerUpdates() {
   try {
     const response = await fetch("/api/docker-updates", {cache: "no-store"});
@@ -394,29 +366,6 @@ async function loadDockerUpdates() {
     dockerUpdates = {};
   }
 }
-
-function sendPendingHostUpdate() {
-  if (!pendingHostUpdate || !hostUpdateCommand || sshSocket?.readyState !== WebSocket.OPEN) return;
-  pendingHostUpdate = false;
-  hostUpdateRunning = true;
-  sshOutputTail = "";
-  sshTerminal.writeln(`\r\n\x1b[38;5;214m${t("updates.starting")}\x1b[0m`);
-  sshSocket.send(JSON.stringify({
-    type: "input",
-    data: `${hostUpdateCommand}; printf '\\n__UBUNTU''_DASHBOARD_UPDATE_DONE__:%s\\n' "$?"\r`
-  }));
-}
-
-$("#host-updates").addEventListener("click", () => {
-  if (!hostUpdateCommand || !$("#host-updates").classList.contains("available")) return;
-  pendingHostUpdate = true;
-  setPage("cli");
-  if (sshSocket?.readyState === WebSocket.OPEN) sendPendingHostUpdate();
-  else {
-    $("#ssh-error").textContent = t("updates.loginHint");
-    $("#ssh-username").focus();
-  }
-});
 
 function scheduleLiveUpdate(delay = LIVE_INTERVAL_MS) {
   clearTimeout(liveTimer);
@@ -738,15 +687,6 @@ $("#ssh-login").addEventListener("submit", event => {
     if (event.data instanceof ArrayBuffer) {
       const chunk = new Uint8Array(event.data);
       sshTerminal.write(chunk);
-      if (hostUpdateRunning) {
-        sshOutputTail = (sshOutputTail + sshTextDecoder.decode(chunk, {stream: true})).slice(-2048);
-        const completed = sshOutputTail.match(/__UBUNTU_DASHBOARD_UPDATE_DONE__:(\d+)/);
-        if (completed) {
-          hostUpdateRunning = false;
-          sshOutputTail = "";
-          setTimeout(refreshHostUpdates, 1200);
-        }
-      }
       return;
     }
     let message;
@@ -758,7 +698,6 @@ $("#ssh-login").addEventListener("submit", event => {
       $("#terminal-title").textContent = `${message.username}@${message.host}:${message.port}`;
       setSshStatus("connected", t("cli.connected"));
       sshTerminal.focus();
-      if (pendingHostUpdate) setTimeout(sendPendingHostUpdate, 1500);
     } else if (message.type === "error") {
       $("#ssh-error").textContent = message.message || "SSH-Verbindung fehlgeschlagen.";
       sshTerminal.writeln(`\r\n\x1b[31m${message.message || "SSH connection failed"}\x1b[0m`);
@@ -860,7 +799,6 @@ async function bootstrap() {
     loadOverview();
     loadDockerUpdates();
     setInterval(loadVersionCheck, 15 * 60 * 1000);
-    setInterval(loadHostUpdates, 30 * 60 * 1000);
     setInterval(loadDockerUpdates, 15 * 60 * 1000);
     try {
       setupSshTerminal();

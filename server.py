@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
 # Deliberately image-owned: old Compose files must not be able to override the UI version.
-VERSION = "1.8.0"
+VERSION = "1.9.0"
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 ACCOUNT_FILE = Path(os.getenv("ACCOUNT_FILE", "/data/account.json"))
@@ -177,53 +177,6 @@ def github_version_info():
         }
 
 
-def host_package_updates():
-    distro = os_release_info().get("ID", "").lower()
-    update_commands = {
-        "ubuntu": "sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y",
-        "debian": "sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y",
-        "fedora": "sudo dnf upgrade --refresh -y",
-        "rocky": "sudo dnf upgrade --refresh -y",
-        "rhel": "sudo dnf upgrade --refresh -y",
-        "arch": "sudo pacman -Syu --noconfirm",
-        "manjaro": "sudo pacman -Syu --noconfirm",
-        "opensuse": "sudo zypper refresh && sudo zypper update -y",
-    }
-    update_command = update_commands.get(distro)
-    dnf_binary = "/usr/bin/dnf" if host_path("/usr/bin/dnf").exists() else "/usr/bin/dnf5"
-    commands = {
-        "ubuntu": ["/usr/bin/apt", "list", "--upgradable"],
-        "debian": ["/usr/bin/apt", "list", "--upgradable"],
-        "fedora": [dnf_binary, "-q", "check-update", "--cacheonly"],
-        "rocky": [dnf_binary, "-q", "check-update", "--cacheonly"],
-        "rhel": [dnf_binary, "-q", "check-update", "--cacheonly"],
-        "arch": ["/usr/bin/pacman", "-Qu"],
-        "manjaro": ["/usr/bin/pacman", "-Qu"],
-        "opensuse": ["/usr/bin/zypper", "--non-interactive", "list-updates"],
-    }
-    command = commands.get(distro)
-    if not command or not host_path(command[0]).exists():
-        return {"available": None, "count": None, "distro": distro, "command": update_command}
-    try:
-        result = subprocess.run(
-            ["chroot", str(HOST_ROOT), *command],
-            capture_output=True, text=True, timeout=25,
-            env={**os.environ, "LC_ALL": "C", "LANG": "C"},
-        )
-        lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-        if distro in ("ubuntu", "debian"):
-            updates = [line for line in lines if "/" in line and not line.lower().startswith("listing")]
-        elif distro in ("fedora", "rocky", "rhel"):
-            updates = [line for line in lines if len(line.split()) >= 3 and not line.startswith(("Last metadata", "Obsoleting"))]
-        elif distro in ("arch", "manjaro"):
-            updates = lines
-        else:
-            updates = [line for line in lines if "|" in line and not line.startswith(("-", "Repository", "S |"))]
-        return {"available": bool(updates), "count": len(updates), "distro": distro, "command": update_command}
-    except Exception as exc:
-        return {"available": None, "count": None, "distro": distro, "command": update_command, "error": str(exc)}
-
-
 def request_host(handler):
     raw = handler.headers.get("Host", "")
     try:
@@ -336,40 +289,6 @@ def os_release_info():
     return values
 
 
-def temperatures():
-    found, seen = [], set()
-
-    def add(name, raw):
-        try:
-            number = float(str(raw).strip())
-            value = number / 1000 if abs(number) > 200 else number
-            if -10 < value < 150:
-                key = (name.lower(), round(value, 1))
-                if key not in seen:
-                    found.append({"name": name, "value": round(value, 1)})
-                    seen.add(key)
-        except (TypeError, ValueError):
-            pass
-
-    base = host_path("/sys/class/thermal")
-    try:
-        for zone in base.glob("thermal_zone*"):
-            add(read_text(zone / "type", zone.name).strip(), read_text(zone / "temp"))
-    except OSError:
-        pass
-    hwmon_base = host_path("/sys/class/hwmon")
-    try:
-        for hwmon in hwmon_base.glob("hwmon*"):
-            chip = read_text(hwmon / "name", hwmon.name).strip()
-            for source in hwmon.glob("temp*_input"):
-                prefix = source.name.removesuffix("_input")
-                label = read_text(hwmon / f"{prefix}_label").strip()
-                add(f"{chip} · {label}" if label else f"{chip} · {prefix}", read_text(source))
-    except OSError:
-        pass
-    return found[:16]
-
-
 def system_info():
     global _sample
     now = time.time()
@@ -434,7 +353,7 @@ def system_info():
             "up": round(rates["up"]),
             "interfaces": sorted(current_net.keys()),
         },
-        "temperatures": temperatures(),
+        "disks": cached("disk-telemetry", 10, disk_telemetry),
     }
 
 
@@ -647,46 +566,496 @@ def host_mount_text():
     return ""
 
 
-def storage_info():
-    ignored = ("proc", "sysfs", "tmpfs", "devtmpfs", "cgroup", "overlay", "squashfs",
-               "nsfs", "tracefs", "securityfs", "pstore", "debugfs", "mqueue",
-               "fusectl", "ramfs", "hugetlbfs", "configfs", "selinuxfs", "efivarfs")
-    data_filesystems = {
-        "ext2", "ext3", "ext4", "xfs", "zfs", "btrfs", "bcachefs", "f2fs",
-        "reiserfs", "jfs", "nilfs2", "fuse.shfs", "fuse.mergerfs", "fuse.unionfs",
-        "nfs", "nfs4", "cifs", "smb3", "ceph", "glusterfs",
-    }
-    result, seen = [], set()
+def mount_records():
+    records = []
     for line in host_mount_text().splitlines():
         parts = line.split()
         if len(parts) < 3:
             continue
-        device, mount, fs = parts[:3]
-        device = device.replace("\\040", " ")
-        mount = mount.replace("\\040", " ").replace("\\011", "\t")
-        if fs.startswith(ignored) or mount in seen or not mount.startswith("/"):
+        device, mount, filesystem = parts[:3]
+        records.append({
+            "device": device.replace("\\040", " "),
+            "mount": mount.replace("\\040", " ").replace("\\011", "\t"),
+            "filesystem": filesystem,
+        })
+    return records
+
+
+def filesystem_usage(mount):
+    try:
+        stats = os.statvfs(host_path(mount))
+        total = stats.f_blocks * stats.f_frsize
+        available = stats.f_bavail * stats.f_frsize
+        used = max(0, total - stats.f_bfree * stats.f_frsize)
+        return {
+            "total": total,
+            "used": used,
+            "available": available,
+            "percent": round(used / total * 100, 1) if total else 0,
+        }
+    except OSError:
+        return {"total": 0, "used": 0, "available": 0, "percent": 0}
+
+
+def parse_unraid_disks():
+    source = read_text(host_path("/var/local/emhttp/disks.ini"))
+    if not source.strip():
+        return []
+    sections, current = [], None
+    for raw in source.splitlines():
+        line = raw.strip()
+        section = re.fullmatch(r'\["?([^]"]+)"?\]', line)
+        if section:
+            current = {"section": section.group(1)}
+            sections.append(current)
             continue
-        if not (device.startswith("/dev/") or fs in data_filesystems):
+        if current and "=" in line:
+            key, value = line.split("=", 1)
+            current[key.strip()] = value.strip().strip('"')
+    return sections
+
+
+def numeric_size(value):
+    try:
+        number = int(float(value or 0))
+        # Unraid reports drive sizes in KiB.
+        return number * 1024 if number and number < 10 ** 14 else number
+    except (TypeError, ValueError):
+        return 0
+
+
+def normalize_disk_state(raw, temperature=None, smart_passed=None, disk_type="hdd"):
+    state = str(raw or "").lower()
+    try:
+        temperature = float(temperature) if temperature not in (None, "", "*") else None
+    except (TypeError, ValueError):
+        temperature = None
+    if smart_passed is False or any(word in state for word in (
+        "fault", "fail", "error", "offline", "disabled", "invalid",
+        "disk_np", "disk_dsbl", "disk_wrong", "red",
+    )):
+        return "critical"
+    if any(word in state for word in ("warn", "degrad", "rebuild", "emulated", "missing", "yellow", "orange")):
+        return "warning"
+    warning_temperature, critical_temperature = (70, 80) if disk_type == "ssd" else (50, 60)
+    if temperature is not None and temperature >= critical_temperature:
+        return "critical"
+    if temperature is not None and temperature >= warning_temperature:
+        return "warning"
+    return "healthy"
+
+
+def unraid_disk_telemetry():
+    result = []
+    for item in parse_unraid_disks():
+        name = item.get("name") or item.get("section", "")
+        device = item.get("device", "").removeprefix("/dev/")
+        if not name or name in ("flash", "user", "user0"):
             continue
+        temperature = item.get("temp")
         try:
-            stats = os.statvfs(host_path(mount))
-            total = stats.f_blocks * stats.f_frsize
-            available = stats.f_bavail * stats.f_frsize
-            used = max(0, total - stats.f_bfree * stats.f_frsize)
-            result.append({
-                "device": device,
-                "mount": mount,
-                "filesystem": fs,
-                "total": total,
-                "used": used,
-                "available": available,
-                "percent": round(used / total * 100, 1) if total else 0,
-            })
-            seen.add(mount)
-        except OSError:
-            pass
-    result.sort(key=lambda d: (d["mount"] != "/", d["mount"]))
+            temperature = round(float(temperature), 1)
+        except (TypeError, ValueError):
+            temperature = None
+        raw_status = item.get("status") or item.get("color") or item.get("state") or "running"
+        disk_type = "ssd" if item.get("rotational") == "0" or device.startswith("nvme") else "hdd"
+        result.append({
+            "name": name,
+            "device": device,
+            "model": item.get("id") or item.get("model") or device,
+            "type": disk_type,
+            "state": "standby" if temperature is None else "running",
+            "health": normalize_disk_state(raw_status, temperature, disk_type=disk_type),
+            "temperature": temperature,
+            "size": numeric_size(item.get("size")),
+        })
     return result
+
+
+def physical_block_names():
+    result = []
+    base = host_path("/sys/block")
+    try:
+        entries = base.iterdir()
+    except OSError:
+        return result
+    for entry in entries:
+        name = entry.name
+        if re.match(r"^(sd[a-z]+|hd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+)$", name):
+            result.append(name)
+    return sorted(result)
+
+
+def smart_data(name):
+    smartctl = shutil.which("smartctl")
+    device = host_path(f"/dev/{name}")
+    if not smartctl or not device.exists():
+        return {}
+    try:
+        completed = subprocess.run(
+            [smartctl, "--json=c", "-n", "standby", "-H", "-A", str(device)],
+            capture_output=True, text=True, timeout=4,
+        )
+        payload = json.loads(completed.stdout or "{}")
+        standby = completed.returncode == 2 or "standby" in (payload.get("smartctl", {}).get("messages") or [{}])[0].get("string", "").lower()
+        temperature = payload.get("temperature", {}).get("current")
+        if temperature is None:
+            for attribute in payload.get("ata_smart_attributes", {}).get("table", []):
+                if attribute.get("id") in (190, 194):
+                    temperature = attribute.get("raw", {}).get("value")
+                    break
+        return {
+            "temperature": temperature,
+            "smartPassed": payload.get("smart_status", {}).get("passed"),
+            "standby": standby,
+            "model": payload.get("model_name"),
+            "serial": payload.get("serial_number"),
+        }
+    except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+def sysfs_disk(name):
+    base = host_path(f"/sys/block/{name}")
+    smart = smart_data(name)
+    try:
+        size = int(read_text(base / "size", "0").strip() or 0) * 512
+    except ValueError:
+        size = 0
+    state = read_text(base / "device/state", "running").strip().lower() or "running"
+    if state in ("live", "active", "online"):
+        state = "running"
+    elif state in ("suspended", "sleeping"):
+        state = "standby"
+    temperature = smart.get("temperature")
+    try:
+        temperature = round(float(temperature), 1)
+    except (TypeError, ValueError):
+        temperature = None
+    rotational = read_text(base / "queue/rotational", "1").strip()
+    model = smart.get("model") or read_text(base / "device/model", name).strip() or name
+    return {
+        "name": name,
+        "device": name,
+        "model": model,
+        "serial": smart.get("serial") or read_text(base / "device/serial").strip(),
+        "type": "ssd" if rotational == "0" else "hdd",
+        "state": "standby" if smart.get("standby") else state,
+        "health": normalize_disk_state(state, temperature, smart.get("smartPassed"), "ssd" if rotational == "0" else "hdd"),
+        "temperature": temperature,
+        "size": size,
+    }
+
+
+def disk_telemetry():
+    unraid = unraid_disk_telemetry()
+    if unraid:
+        return unraid
+    names = physical_block_names()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, max(1, len(names)))) as executor:
+        return list(executor.map(sysfs_disk, names))
+
+
+def host_command(command, timeout=5):
+    executable = command[0]
+    candidates = (f"/usr/sbin/{executable}", f"/sbin/{executable}", f"/usr/bin/{executable}", f"/bin/{executable}")
+    host_executable = next((item for item in candidates if host_path(item).exists()), None)
+    if not host_executable:
+        return ""
+    try:
+        completed = subprocess.run(
+            ["chroot", str(HOST_ROOT), host_executable, *command[1:]],
+            capture_output=True, text=True, timeout=timeout,
+            env={**os.environ, "LC_ALL": "C", "LANG": "C"},
+        )
+        return completed.stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def member_from_disk(disk, role=None, vdev=None):
+    return {
+        "name": disk.get("name") or disk.get("device"),
+        "device": disk.get("device", ""),
+        "role": role or "disk",
+        "vdev": vdev,
+        "status": disk.get("health", "healthy"),
+        "state": disk.get("state", "running"),
+        "temperature": disk.get("temperature"),
+        "size": disk.get("size", 0),
+    }
+
+
+def base_disk_name(device):
+    name = Path(str(device)).name
+    if re.match(r"^nvme\d+n\d+p\d+$", name) or re.match(r"^mmcblk\d+p\d+$", name):
+        return re.sub(r"p\d+$", "", name)
+    return re.sub(r"\d+$", "", name)
+
+
+def unraid_storage(disks):
+    metadata = parse_unraid_disks()
+    if not metadata:
+        return []
+    telemetry = {item["name"]: item for item in disks}
+    array_members, pool_members = [], {}
+    for item in metadata:
+        name = item.get("name") or item.get("section", "")
+        if not name or name in ("flash", "user", "user0"):
+            continue
+        role = "parity" if name.startswith("parity") else "data"
+        pool = item.get("pool") or item.get("poolName")
+        if name.startswith("cache") or pool:
+            pool_name = pool or "cache"
+            pool_members.setdefault(pool_name, []).append(member_from_disk(telemetry.get(name, {
+                "name": name, "device": item.get("device", ""), "size": numeric_size(item.get("size")),
+            }), "cache"))
+        else:
+            member = member_from_disk(telemetry.get(name, {
+                "name": name, "device": item.get("device", ""), "size": numeric_size(item.get("size")),
+            }), role)
+            mount = f"/mnt/{name}"
+            member.update(filesystem_usage(mount) if role == "data" else {"used": 0, "percent": 0})
+            array_members.append(member)
+    groups = []
+    data_members = [item for item in array_members if item["role"] == "data"]
+    usage = filesystem_usage("/mnt/user")
+    if not usage["total"]:
+        usage = {
+            "total": sum(item.get("total", item.get("size", 0)) for item in data_members),
+            "used": sum(item.get("used", 0) for item in data_members),
+            "available": 0,
+            "percent": 0,
+        }
+        usage["available"] = max(0, usage["total"] - usage["used"])
+        usage["percent"] = round(usage["used"] / usage["total"] * 100, 1) if usage["total"] else 0
+    groups.append({"name": "Array", "type": "Unraid array", "status": "healthy", "members": array_members, **usage})
+    for name, members in pool_members.items():
+        usage = filesystem_usage(f"/mnt/{name}")
+        if not usage["total"]:
+            usage["total"] = sum(item["size"] for item in members)
+            usage["available"] = usage["total"]
+        groups.append({"name": name, "type": "Cache / pool", "status": "healthy", "members": members, **usage})
+    for group in groups:
+        health = [item["status"] for item in group["members"]]
+        group["status"] = "critical" if "critical" in health else "warning" if "warning" in health else "healthy"
+    return groups
+
+
+def zfs_storage(disks):
+    listing = host_command(["zpool", "list", "-Hp", "-o", "name,size,alloc,free,cap,health"])
+    if not listing.strip():
+        return []
+    disk_map = {item["device"]: item for item in disks}
+    status_output = host_command(["zpool", "status", "-P"])
+    members_by_pool = {}
+    current_pool = current_vdev = None
+    for raw in status_output.splitlines():
+        if raw.startswith("  pool:"):
+            current_pool = raw.split(":", 1)[1].strip()
+            current_vdev = None
+            members_by_pool.setdefault(current_pool, [])
+            continue
+        match = re.match(r"^(\s+)(\S+)\s+(ONLINE|DEGRADED|FAULTED|OFFLINE|UNAVAIL|REMOVED)\b", raw)
+        if not match or not current_pool:
+            continue
+        indent, node, state = len(match.group(1)), match.group(2), match.group(3)
+        if indent <= 4 or node == current_pool:
+            continue
+        if not node.startswith(("/dev/", "ata-", "wwn-", "nvme-")):
+            current_vdev = node
+            continue
+        device = Path(node).name
+        base = base_disk_name(device)
+        disk = disk_map.get(base, {"name": device, "device": device, "size": 0, "health": "healthy", "state": "running", "temperature": None})
+        member = member_from_disk(disk, "data", current_vdev)
+        topology_status = normalize_disk_state(state)
+        member["status"] = topology_status if topology_status != "healthy" else disk.get("health", "healthy")
+        members_by_pool[current_pool].append(member)
+    result = []
+    for line in listing.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 6:
+            parts = line.split()
+        if len(parts) < 6:
+            continue
+        name, size, allocated, free, capacity, health = parts[:6]
+        try:
+            total, used, available = int(size), int(allocated), int(free)
+            percent = float(str(capacity).rstrip("%"))
+        except ValueError:
+            continue
+        result.append({
+            "name": name,
+            "type": "ZFS pool",
+            "status": normalize_disk_state(health),
+            "total": total,
+            "used": used,
+            "available": available,
+            "percent": percent,
+            "members": members_by_pool.get(name, []),
+        })
+    return result
+
+
+def md_storage(disks):
+    disk_map = {item["device"]: item for item in disks}
+    records = mount_records()
+    result = []
+    lines = read_text(host_path("/proc/mdstat")).splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r"^(md\d+)\s*:\s*(\w+)\s+(\S+)\s+(.+)$", line)
+        if not match:
+            continue
+        name, array_state, raid_level, devices = match.groups()
+        members = []
+        for token in devices.split():
+            device_match = re.match(r"([A-Za-z0-9_-]+?)(?:p?\d+)?\[\d+\](?:\([A-Z]\))?$", token)
+            if not device_match:
+                continue
+            device = device_match.group(1)
+            disk = disk_map.get(device, {"name": device, "device": device, "size": 0, "health": "healthy", "state": "running", "temperature": None})
+            members.append(member_from_disk(disk, "data", raid_level))
+        detail = lines[index + 1] if index + 1 < len(lines) else ""
+        degraded = "_" in detail or "inactive" in array_state.lower()
+        mount = next((item["mount"] for item in records if item["device"] in (f"/dev/{name}", f"/dev/md/{name}")), "")
+        usage = filesystem_usage(mount) if mount else {"total": sum(item["size"] for item in members), "used": 0, "available": 0, "percent": 0}
+        result.append({
+            "name": name,
+            "type": f"Linux {raid_level}",
+            "status": "warning" if degraded else "healthy",
+            "members": members,
+            **usage,
+        })
+    return result
+
+
+def lvm_storage(disks):
+    disk_map = {item["device"]: item for item in disks}
+    records = mount_records()
+    result, seen = [], set()
+    class_block = host_path("/sys/class/block")
+    try:
+        dm_devices = class_block.glob("dm-*")
+    except OSError:
+        return result
+    for dm in dm_devices:
+        logical_name = read_text(dm / "dm/name").strip()
+        if not logical_name:
+            continue
+        record = next((item for item in records if Path(item["device"]).name in (dm.name, logical_name)), None)
+        if not record or not (record["mount"] == "/" or record["mount"].startswith(("/mnt/", "/media/", "/srv/", "/data/", "/storage/"))):
+            continue
+        members = []
+        try:
+            slaves = list((dm / "slaves").iterdir())
+        except OSError:
+            slaves = []
+        for slave in slaves:
+            base = base_disk_name(slave.name)
+            if base in disk_map:
+                members.append(member_from_disk(disk_map[base], "physical volume", logical_name))
+        if not members:
+            continue
+        key = tuple(sorted(item["device"] for item in members))
+        if key in seen:
+            continue
+        seen.add(key)
+        usage = filesystem_usage(record["mount"])
+        health = [item["status"] for item in members]
+        result.append({
+            "name": logical_name,
+            "type": "LVM volume group",
+            "status": "critical" if "critical" in health else "warning" if "warning" in health else "healthy",
+            "members": members,
+            **usage,
+        })
+    return result
+
+
+def btrfs_storage(disks):
+    disk_map = {item["device"]: item for item in disks}
+    btrfs_root = host_path("/sys/fs/btrfs")
+    mounts = [item for item in mount_records() if item["filesystem"] == "btrfs"]
+    result, claimed = [], set()
+    try:
+        filesystems = [item for item in btrfs_root.iterdir() if (item / "devices").is_dir()]
+    except OSError:
+        filesystems = []
+    for filesystem in filesystems:
+        members = []
+        try:
+            devices = list((filesystem / "devices").iterdir())
+        except OSError:
+            devices = []
+        for entry in devices:
+            raw_name = read_text(entry / "name").strip()
+            base = base_disk_name(raw_name)
+            disk = disk_map.get(base)
+            if disk:
+                members.append(member_from_disk(disk, "data", "Btrfs"))
+                claimed.add(base)
+        if not members:
+            continue
+        mount = next((
+            item["mount"] for item in mounts
+            if base_disk_name(item["device"]) in {member["device"] for member in members}
+        ), "")
+        usage = filesystem_usage(mount) if mount else {
+            "total": sum(item["size"] for item in members),
+            "used": 0,
+            "available": sum(item["size"] for item in members),
+            "percent": 0,
+        }
+        label = read_text(filesystem / "label").strip()
+        health = [item["status"] for item in members]
+        result.append({
+            "name": label or (Path(mount).name if mount and mount != "/" else "Btrfs"),
+            "type": "Btrfs filesystem",
+            "status": "critical" if "critical" in health else "warning" if "warning" in health else "healthy",
+            "members": members,
+            **usage,
+        })
+    return result
+
+
+def generic_storage(disks):
+    records = mount_records()
+    groups = []
+    for disk in disks:
+        candidates = []
+        for record in records:
+            device_name = Path(record["device"]).name
+            if device_name == disk["device"] or device_name.startswith(disk["device"] + "p") or re.match(rf"^{re.escape(disk['device'])}\d+$", device_name):
+                if record["mount"] == "/" or record["mount"].startswith(("/mnt/", "/media/", "/srv/", "/data/", "/storage/")):
+                    candidates.append(record)
+        selected = max(candidates, key=lambda item: filesystem_usage(item["mount"])["total"], default=None)
+        usage = filesystem_usage(selected["mount"]) if selected else {
+            "total": disk["size"], "used": 0, "available": disk["size"], "percent": 0,
+        }
+        groups.append({
+            "name": disk["model"] or disk["device"],
+            "type": f"{disk['type'].upper()} · /dev/{disk['device']}",
+            "status": disk["health"],
+            "members": [member_from_disk(disk, "system" if selected and selected["mount"] == "/" else "data")],
+            **usage,
+        })
+    return groups
+
+
+def storage_info():
+    disks = cached("disk-telemetry", 10, disk_telemetry)
+    unraid = unraid_storage(disks)
+    if unraid:
+        return unraid
+    groups = zfs_storage(disks) + md_storage(disks) + lvm_storage(disks) + btrfs_storage(disks)
+    claimed = {
+        member["device"]
+        for group in groups
+        for member in group.get("members", [])
+    }
+    groups.extend(generic_storage([disk for disk in disks if disk["device"] not in claimed]))
+    return groups
 
 
 def process_info():
@@ -850,13 +1219,15 @@ def cli_command(command):
             f"Swap: {bytes_label(memory['swapUsed'])} / {bytes_label(memory['swapTotal'])}"
         )
     if normalized in ("disks", "df", "df -h"):
-        rows = ["MOUNT                 USED / TOTAL       USE%  FILESYSTEM"]
-        for disk in storage_info():
+        rows = ["POOL / ARRAY           USED / TOTAL       USE%  TYPE"]
+        for group in storage_info():
             rows.append(
-                f"{disk['mount'][:20]:<20}  {bytes_label(disk['used']):>8} / {bytes_label(disk['total']):<8} "
-                f"{disk['percent']:>5}%  {disk['filesystem']}"
+                f"{group['name'][:20]:<20}  {bytes_label(group['used']):>8} / {bytes_label(group['total']):<8} "
+                f"{group['percent']:>5}%  {group['type']}"
             )
-        return "\n".join(rows) if len(rows) > 1 else "No data filesystems detected."
+            for member in group.get("members", []):
+                rows.append(f"  {member['name'][:18]:<18} {bytes_label(member.get('size', 0)):>18}  {member.get('role', 'disk')}")
+        return "\n".join(rows) if len(rows) > 1 else "No storage devices detected."
     if normalized in ("network", "ip", "ip a"):
         network = system["network"]
         return (
@@ -1092,8 +1463,6 @@ class Handler(BaseHTTPRequestHandler):
             })
         elif path == "/api/version":
             self.send_json(cached("github-version", 900, github_version_info))
-        elif path == "/api/host-updates":
-            self.send_json(cached("host-updates", 1800, host_package_updates))
         elif path == "/api/docker-updates":
             self.send_json(cached("docker-updates", 900, docker_image_updates))
         elif path == "/api/account":
@@ -1149,12 +1518,6 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/account":
             self.handle_account_update(session)
-            return
-        if path == "/api/host-updates/refresh":
-            _cache.pop("host-updates", None)
-            result = host_package_updates()
-            _cache["host-updates"] = (time.time(), result)
-            self.send_json(result)
             return
         if path.startswith("/api/files/"):
             self.handle_file_action(path.removeprefix("/api/files/"))
