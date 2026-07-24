@@ -21,8 +21,6 @@ services:
       - type: bind
         source: /
         target: /host
-        bind:
-          propagation: rslave
       - type: bind
         source: /proc/1/mounts
         target: /host-proc-mounts
