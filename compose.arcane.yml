@@ -8,15 +8,15 @@ services:
     ports:
       - "8080:8080"
     environment:
-      DASHBOARD_USER: "${DASHBOARD_USER:-admin}"
-      DASHBOARD_PASSWORD: "${DASHBOARD_PASSWORD:-change-this-password-now}"
-      ALLOW_DOCKER_ACTIONS: "true"
-      SHARE_ROOTS: ""
-      SSH_HOST: "auto"
-      SSH_PORT: "22"
-      NETWORK_INTERFACE: "auto"
-      COOKIE_SECURE: "false"
-      SESSION_TTL: "43200"
+      DASHBOARD_USER: "${DASHBOARD_USER:-}"
+      DASHBOARD_PASSWORD: "${DASHBOARD_PASSWORD:-}"
+      ALLOW_DOCKER_ACTIONS: "${ALLOW_DOCKER_ACTIONS:-true}"
+      SHARE_ROOTS: "${SHARE_ROOTS:-}"
+      SSH_HOST: "${SSH_HOST:-auto}"
+      SSH_PORT: "${SSH_PORT:-22}"
+      NETWORK_INTERFACE: "${NETWORK_INTERFACE:-auto}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+      SESSION_TTL: "${SESSION_TTL:-43200}"
     volumes:
       - type: bind
         source: /
