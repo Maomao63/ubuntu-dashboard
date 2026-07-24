@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0e13">
   <title>Ubuntu Server Dashboard</title>
-  <link rel="stylesheet" href="/vendor/xterm.css?v=1.12.1">
-  <link rel="stylesheet" href="/styles.css?v=1.12.1">
+  <link rel="stylesheet" href="/vendor/xterm.css?v=1.12.2">
+  <link rel="stylesheet" href="/styles.css?v=1.12.2">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -179,7 +179,17 @@
         </div>
       </div>
       <div class="shares-layout">
-        <div id="share-list" class="share-list browser-root-tabs loading">Searching locations…</div>
+        <aside class="panel browser-locations-panel">
+          <div class="browser-locations-head">
+            <span class="browser-locations-icon"><svg class="ui-icon"><use href="#icon-database"></use></svg></span>
+            <div>
+              <h3 data-i18n="browser.locations">Locations</h3>
+              <small data-i18n="section.shares">Browse and manage files across detected host data directories.</small>
+            </div>
+            <span id="location-count" class="browser-location-count">–</span>
+          </div>
+          <div id="share-list" class="share-list browser-location-list loading">Searching locations…</div>
+        </aside>
         <article class="panel file-browser">
           <div class="file-toolbar">
             <button class="action browser-up" id="share-up" disabled><svg class="ui-icon"><use href="#icon-arrow-left"></use></svg></button>
@@ -334,9 +344,9 @@
   </dialog>
 
   <div id="toast" role="status"></div>
-  <script src="/i18n.js?v=1.12.1"></script>
-  <script src="/vendor/xterm.js?v=1.12.1"></script>
-  <script src="/vendor/addon-fit.js?v=1.12.1"></script>
-  <script src="/app.js?v=1.12.1"></script>
+  <script src="/i18n.js?v=1.12.2"></script>
+  <script src="/vendor/xterm.js?v=1.12.2"></script>
+  <script src="/vendor/addon-fit.js?v=1.12.2"></script>
+  <script src="/app.js?v=1.12.2"></script>
 </body>
 </html>

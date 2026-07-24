@@ -39,12 +39,12 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           build-args: |
-            APP_VERSION=1.12.1
+            APP_VERSION=1.12.2
           tags: |
             ghcr.io/maomao63/ubuntu-dashboard:latest
-            ghcr.io/maomao63/ubuntu-dashboard:1.12.1
+            ghcr.io/maomao63/ubuntu-dashboard:1.12.2
           labels: |
             org.opencontainers.image.title=Ubuntu Control Dashboard
             org.opencontainers.image.description=Ubuntu Server WebUI with Docker management
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.version=1.12.1
+            org.opencontainers.image.version=1.12.2

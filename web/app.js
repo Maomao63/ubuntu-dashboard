@@ -465,6 +465,7 @@ async function loadShares(share = null, path = "") {
     }
     $("#new-folder").disabled = data.selected === undefined;
     $("#new-file").disabled = data.selected === undefined;
+    $("#location-count").textContent = data.shares.length;
     $("#share-list").classList.remove("loading");
     $("#share-list").innerHTML = data.shares.length ? data.shares.map(item => `
       <button class="share-button ${Number(selectedShare) === item.id ? "active" : ""}" data-share="${item.id}">
