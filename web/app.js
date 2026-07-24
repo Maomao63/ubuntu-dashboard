@@ -4,24 +4,9 @@ let overview = null;
 let busy = false;
 let liveTimer = null;
 let failedUpdates = 0;
-
-const scaleInput = $("#ui-scale");
-const scaleOutput = $("#scale-value");
-const storedScale = Number(localStorage.getItem("ubuntu-dashboard-scale"));
-const automaticScale = window.innerWidth >= 2200 ? 125 : window.innerWidth >= 1600 ? 115 : 100;
-
-function setScale(value) {
-  value = Math.max(90, Math.min(140, Number(value)));
-  document.documentElement.style.setProperty("--ui-scale", value / 100);
-  scaleInput.value = value;
-  scaleOutput.value = `${value}%`;
-  localStorage.setItem("ubuntu-dashboard-scale", value);
-}
-
-setScale(storedScale || automaticScale);
-scaleInput.addEventListener("input", event => setScale(event.target.value));
-$("#scale-down").addEventListener("click", () => setScale(Number(scaleInput.value) - 5));
-$("#scale-up").addEventListener("click", () => setScale(Number(scaleInput.value) + 5));
+const LIVE_INTERVAL_MS = 500;
+let selectedShare = null;
+let selectedPath = "";
 
 const escapeHtml = (value = "") => String(value).replace(/[&<>"']/g, char => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
@@ -57,6 +42,7 @@ function setPage(name) {
     overview: ["SYSTEMZENTRALE", "Übersicht"],
     docker: ["WORKLOADS", "Docker"],
     storage: ["DATEISYSTEME", "Speicher"],
+    shares: ["DATEIMANAGER", "Freigaben"],
     processes: ["HOST", "Prozesse"],
     logs: ["EREIGNISSE", "Systemlogs"],
   };
@@ -65,12 +51,87 @@ function setPage(name) {
   document.body.classList.remove("menu-open");
   if (name === "processes") loadProcesses();
   if (name === "logs") loadLogs();
+  if (name === "shares") loadShares(selectedShare, selectedPath);
 }
 
 $$(".nav").forEach(button => button.addEventListener("click", () => setPage(button.dataset.page)));
 $$("[data-jump]").forEach(button => button.addEventListener("click", () => setPage(button.dataset.jump)));
 $(".mobile-menu").addEventListener("click", () => document.body.classList.toggle("menu-open"));
 $("#refresh").addEventListener("click", () => loadOverview(true));
+
+function setupWidgetLayout() {
+  const container = $(".metrics");
+  const toggle = $("#layout-edit");
+  const cards = () => [...container.querySelectorAll(".metric")];
+  let saved = [];
+  try { saved = JSON.parse(localStorage.getItem("ubuntu-dashboard-widgets") || "[]"); }
+  catch { localStorage.removeItem("ubuntu-dashboard-widgets"); }
+  saved.forEach(id => {
+    const card = container.querySelector(`[data-widget="${CSS.escape(id)}"]`);
+    if (card) container.append(card);
+  });
+
+  const save = () => localStorage.setItem(
+    "ubuntu-dashboard-widgets",
+    JSON.stringify(cards().map(card => card.dataset.widget))
+  );
+  const setEditing = enabled => {
+    container.classList.toggle("editing", enabled);
+    cards().forEach(card => card.draggable = enabled);
+  };
+  cards().forEach(card => {
+    const controls = document.createElement("span");
+    controls.className = "widget-move";
+    controls.innerHTML = `<button data-move="-1" title="Nach links">←</button><button data-move="1" title="Nach rechts">→</button>`;
+    card.append(controls);
+    controls.addEventListener("click", event => {
+      const button = event.target.closest("[data-move]");
+      if (!button) return;
+      event.stopPropagation();
+      const all = cards(), index = all.indexOf(card);
+      const target = all[index + Number(button.dataset.move)];
+      if (!target) return;
+      if (Number(button.dataset.move) < 0) container.insertBefore(card, target);
+      else container.insertBefore(target, card);
+      save();
+    });
+    card.addEventListener("dragstart", event => {
+      if (!toggle.checked) return event.preventDefault();
+      card.classList.add("dragging");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", card.dataset.widget);
+    });
+    card.addEventListener("dragend", () => {
+      cards().forEach(item => item.classList.remove("dragging", "drag-over"));
+      save();
+    });
+    card.addEventListener("dragover", event => {
+      if (!toggle.checked) return;
+      event.preventDefault();
+      cards().forEach(item => item.classList.remove("drag-over"));
+      card.classList.add("drag-over");
+    });
+    card.addEventListener("drop", event => {
+      event.preventDefault();
+      const moving = container.querySelector(`[data-widget="${CSS.escape(event.dataTransfer.getData("text/plain"))}"]`);
+      if (!moving || moving === card) return;
+      const rect = card.getBoundingClientRect();
+      const before = event.clientX < rect.left + rect.width / 2;
+      container.insertBefore(moving, before ? card : card.nextSibling);
+      save();
+    });
+  });
+  toggle.addEventListener("change", () => {
+    setEditing(toggle.checked);
+    toast(toggle.checked ? "Layout entsperrt – Karten verschieben" : "Layout gespeichert");
+  });
+  setEditing(false);
+}
+
+setupWidgetLayout();
+$("#distro-logo").addEventListener("error", event => {
+  event.currentTarget.style.display = "none";
+});
 
 function storageRows(items, limit = items.length) {
   if (!items.length) return `<div class="empty-state">Keine Laufwerke erkannt</div>`;
@@ -129,6 +190,9 @@ function render(data) {
   const system = data.system, docker = data.docker;
   $("#version").textContent = `Version ${data.version} · latest`;
   $("#version-badge").textContent = `v${data.version} · latest`;
+  $("#distro-name").textContent = system.distro.name.toUpperCase();
+  $("#distro-logo").src = `https://cdn.simpleicons.org/${encodeURIComponent(system.distro.icon)}/${system.distro.color.replace("#", "")}`;
+  document.documentElement.style.setProperty("--brand", system.distro.color);
   $("#hostname").textContent = system.hostname;
   $("#os").textContent = system.os;
   $("#kernel").textContent = system.kernel;
@@ -178,7 +242,7 @@ async function loadOverview(manual = false) {
     render(await response.json());
     failedUpdates = 0;
     $(".live-status").classList.remove("offline");
-    $("#live-status").textContent = "LIVE · 2 s";
+    $("#live-status").textContent = `LIVE · ${LIVE_INTERVAL_MS} ms`;
     if (manual) toast("Daten wurden aktualisiert");
   } catch (error) {
     failedUpdates++;
@@ -189,11 +253,11 @@ async function loadOverview(manual = false) {
   } finally {
     busy = false;
     $("#refresh").classList.remove("spinning");
-    scheduleLiveUpdate(document.hidden ? 10000 : failedUpdates ? 5000 : 2000);
+    scheduleLiveUpdate(document.hidden ? 5000 : failedUpdates ? 3000 : LIVE_INTERVAL_MS);
   }
 }
 
-function scheduleLiveUpdate(delay = 2000) {
+function scheduleLiveUpdate(delay = LIVE_INTERVAL_MS) {
   clearTimeout(liveTimer);
   liveTimer = setTimeout(() => loadOverview(), delay);
 }
@@ -216,6 +280,67 @@ async function dockerAction(button) {
     button.disabled = false;
     button.textContent = action;
   }
+}
+
+function shareUrl(share, path = "") {
+  const params = new URLSearchParams();
+  if (share !== null && share !== undefined) params.set("share", share);
+  if (path) params.set("path", path);
+  return `/api/shares?${params}`;
+}
+
+async function loadShares(share = null, path = "") {
+  try {
+    const response = await fetch(shareUrl(share, path), {cache: "no-store"});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Freigaben konnten nicht geladen werden");
+    selectedShare = data.selected ?? share;
+    selectedPath = data.relative || "";
+    $("#share-list").classList.remove("loading");
+    $("#share-list").innerHTML = data.shares.length ? data.shares.map(item => `
+      <button class="share-button ${Number(selectedShare) === item.id ? "active" : ""}" data-share="${item.id}">
+        <span class="share-folder">▰</span>
+        <span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.protocol)} · ${bytes(item.free)} frei</small></span>
+      </button>`).join("") : `<div class="empty-state">Keine Freigaben erkannt.<br><small>Optional SHARE_ROOTS in der Compose setzen.</small></div>`;
+    $$("[data-share]").forEach(button => button.addEventListener("click", () => loadShares(Number(button.dataset.share), "")));
+    renderFiles(data);
+  } catch (error) {
+    $("#file-list").innerHTML = `<div class="error-box">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function renderFiles(data) {
+  if (data.selected === undefined) return;
+  const share = data.shares.find(item => item.id === Number(data.selected));
+  const segments = (data.relative || "").split("/").filter(Boolean);
+  let accumulated = "";
+  const crumbs = [`<button data-browse-path="">${escapeHtml(share?.name || "Freigabe")}</button>`];
+  segments.forEach(segment => {
+    accumulated += `${accumulated ? "/" : ""}${segment}`;
+    crumbs.push(`<i>/</i><button data-browse-path="${escapeHtml(accumulated)}">${escapeHtml(segment)}</button>`);
+  });
+  $("#share-breadcrumbs").innerHTML = crumbs.join("");
+  $("#share-count").textContent = `${data.entries.length}${data.truncated ? "+" : ""} Einträge`;
+  $("#share-up").disabled = !data.relative;
+  $("#share-up").onclick = () => {
+    const parent = segments.slice(0, -1).join("/");
+    loadShares(selectedShare, parent);
+  };
+  $$("[data-browse-path]").forEach(button => button.addEventListener("click", () => loadShares(selectedShare, button.dataset.browsePath)));
+  $("#file-list").innerHTML = data.entries.length ? data.entries.map(item => {
+    const nextPath = [data.relative, item.name].filter(Boolean).join("/");
+    return `<div class="file-row">
+      <div class="file-name">
+        <span class="file-icon ${item.type === "directory" ? "folder" : ""}">${item.type === "directory" ? "▰" : "▤"}</span>
+        ${item.type === "directory"
+          ? `<button data-open-path="${escapeHtml(nextPath)}">${escapeHtml(item.name)}</button>`
+          : `<span>${escapeHtml(item.name)}</span>`}
+      </div>
+      <span class="file-meta">${item.type === "directory" ? "Ordner" : bytes(item.size)}</span>
+      <span class="file-meta modified">${new Date(item.modified * 1000).toLocaleString("de-DE", {dateStyle: "short", timeStyle: "short"})}</span>
+    </div>`;
+  }).join("") : `<div class="empty-state">Dieser Ordner ist leer.</div>`;
+  $$("[data-open-path]").forEach(button => button.addEventListener("click", () => loadShares(selectedShare, button.dataset.openPath)));
 }
 
 async function loadProcesses() {
@@ -241,7 +366,7 @@ async function loadLogs() {
 
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) loadOverview();
-  else scheduleLiveUpdate(10000);
+  else scheduleLiveUpdate(5000);
 });
 window.addEventListener("online", () => loadOverview());
 loadOverview();

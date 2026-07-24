@@ -9,14 +9,15 @@
 </head>
 <body>
   <aside class="sidebar">
-    <a class="brand" href="#overview" aria-label="Ubuntu Dashboard">
-      <span class="brand-mark">◉</span>
-      <span><strong>UBUNTU</strong><small>CONTROL</small></span>
+    <a class="brand" href="#overview" aria-label="Server Dashboard">
+      <span class="brand-mark"><img id="distro-logo" alt="" src="https://cdn.simpleicons.org/ubuntu/E95420"></span>
+      <span><strong id="distro-name">UBUNTU</strong><small>CONTROL</small></span>
     </a>
     <nav>
       <button class="nav active" data-page="overview"><span>⌂</span> Übersicht</button>
       <button class="nav" data-page="docker"><span>⬡</span> Container</button>
       <button class="nav" data-page="storage"><span>▤</span> Speicher</button>
+      <button class="nav" data-page="shares"><span>▱</span> Freigaben</button>
       <button class="nav" data-page="processes"><span>≋</span> Prozesse</button>
       <button class="nav" data-page="logs"><span>⌁</span> Systemlogs</button>
     </nav>
@@ -34,13 +35,12 @@
         <h1 id="page-title">Übersicht</h1>
       </div>
       <div class="header-actions">
-        <span class="live-status"><i></i><span id="live-status">LIVE · 2 s</span></span>
-        <div class="scale-control" title="Oberflächengröße anpassen">
-          <button id="scale-down" aria-label="Oberfläche verkleinern">−</button>
-          <input id="ui-scale" type="range" min="90" max="140" step="5" value="110" aria-label="Oberflächengröße">
-          <button id="scale-up" aria-label="Oberfläche vergrößern">+</button>
-          <output id="scale-value">110%</output>
-        </div>
+        <span class="live-status"><i></i><span id="live-status">LIVE · 500 ms</span></span>
+        <label class="layout-toggle" title="Dashboard-Karten verschieben">
+          <input id="layout-edit" type="checkbox">
+          <span class="toggle-track"><i></i></span>
+          <b>Layout</b>
+        </label>
         <span class="version-badge" id="version-badge">v– · latest</span>
         <span class="updated" id="updated">Verbinde…</span>
         <button class="icon-button" id="refresh" title="Jetzt aktualisieren">↻</button>
@@ -61,22 +61,22 @@
       </div>
 
       <div class="metrics">
-        <article class="metric orange">
+        <article class="metric orange" data-widget="cpu">
           <div class="metric-icon">◫</div>
           <div><small>PROZESSOR</small><strong id="cpu-value">0%</strong><span id="cpu-sub">–</span></div>
           <div class="ring" id="cpu-ring"><span id="cpu-ring-value">0</span></div>
         </article>
-        <article class="metric violet">
+        <article class="metric violet" data-widget="memory">
           <div class="metric-icon">▦</div>
           <div><small>ARBEITSSPEICHER</small><strong id="ram-value">0%</strong><span id="ram-sub">–</span></div>
           <div class="ring" id="ram-ring"><span id="ram-ring-value">0</span></div>
         </article>
-        <article class="metric cyan">
+        <article class="metric cyan" data-widget="network">
           <div class="metric-icon">↕</div>
           <div><small>NETZWERK</small><strong id="network-value">0 B/s</strong><span id="network-sub">–</span></div>
           <div class="spark"><i></i><i></i><i></i><i></i><i></i><i></i></div>
         </article>
-        <article class="metric green">
+        <article class="metric green" data-widget="docker">
           <div class="metric-icon">⬡</div>
           <div><small>DOCKER</small><strong id="docker-value">–</strong><span id="docker-sub">–</span></div>
           <span class="health-dot"></span>
@@ -132,6 +132,29 @@
     <section class="page" id="page-storage">
       <div class="section-intro"><div><h2>Speicher</h2><p>Eingebundene lokale Laufwerke und Netzwerkfreigaben.</p></div></div>
       <div id="storage-cards" class="storage-cards"></div>
+    </section>
+
+    <section class="page" id="page-shares">
+      <div class="section-intro">
+        <div><h2>Freigaben</h2><p>SMB-Freigaben und Datenverzeichnisse des Hosts durchsuchen.</p></div>
+        <span class="read-only-badge">NUR LESEN</span>
+      </div>
+      <div class="shares-layout">
+        <aside class="panel share-list-panel">
+          <div class="panel-head"><div><span class="panel-icon">▱</span><h3>Freigaben</h3></div></div>
+          <div id="share-list" class="share-list loading">Suche Freigaben…</div>
+        </aside>
+        <article class="panel file-browser">
+          <div class="file-toolbar">
+            <button class="action" id="share-up" disabled>← Zurück</button>
+            <div id="share-breadcrumbs" class="breadcrumbs"><span>Freigabe auswählen</span></div>
+            <span id="share-count" class="file-count">–</span>
+          </div>
+          <div id="file-list" class="file-list">
+            <div class="empty-state">Wähle links eine Freigabe aus.</div>
+          </div>
+        </article>
+      </div>
     </section>
 
     <section class="page" id="page-processes">

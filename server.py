@@ -10,17 +10,18 @@ import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
-VERSION = os.getenv("APP_VERSION", "1.1.0")
+VERSION = os.getenv("APP_VERSION", "1.2.0")
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 ALLOW_ACTIONS = os.getenv("ALLOW_DOCKER_ACTIONS", "true").lower() == "true"
 STARTED = time.time()
 _sample = {"at": 0, "cpu": None, "net": None}
+_cache = {}
 
 
 def read_text(path, default=""):
@@ -32,6 +33,16 @@ def read_text(path, default=""):
 
 def host_path(path):
     return HOST_ROOT / path.lstrip("/")
+
+
+def cached(key, ttl, loader):
+    now = time.time()
+    stored = _cache.get(key)
+    if stored and now - stored[0] < ttl:
+        return stored[1]
+    value = loader()
+    _cache[key] = (now, value)
+    return value
 
 
 def bytes_label(value):
@@ -129,9 +140,29 @@ def system_info():
         if "=" in line:
             key, value = line.split("=", 1)
             os_release[key] = value.strip().strip('"')
+    distro_id = os_release.get("ID", "linux").lower()
+    distro_icons = {
+        "ubuntu": ("ubuntu", "#E95420"),
+        "debian": ("debian", "#A81D33"),
+        "fedora": ("fedora", "#51A2DA"),
+        "arch": ("archlinux", "#1793D1"),
+        "manjaro": ("manjaro", "#35BF5C"),
+        "linuxmint": ("linuxmint", "#86BE43"),
+        "opensuse": ("opensuse", "#73BA25"),
+        "opensuse-tumbleweed": ("opensuse", "#73BA25"),
+        "alpine": ("alpinelinux", "#0D597F"),
+        "rocky": ("rockylinux", "#10B981"),
+    }
+    icon, color = distro_icons.get(distro_id, ("linux", "#FCC624"))
     return {
         "hostname": read_text(host_path("/etc/hostname"), socket.gethostname()).strip(),
         "os": os_release.get("PRETTY_NAME", "Ubuntu Server"),
+        "distro": {
+            "id": distro_id,
+            "name": os_release.get("NAME", distro_id.title()),
+            "icon": icon,
+            "color": color,
+        },
         "kernel": read_text(host_path("/proc/sys/kernel/osrelease"), platform.release()).strip(),
         "architecture": platform.machine(),
         "uptime": uptime,
@@ -317,6 +348,116 @@ def log_info():
     ]}
 
 
+def share_roots():
+    roots = []
+    seen = set()
+
+    def add(name, path, protocol="Lokal"):
+        normalized = "/" + str(path).strip().lstrip("/")
+        actual = host_path(normalized)
+        try:
+            resolved = actual.resolve()
+            host_resolved = HOST_ROOT.resolve()
+            if not resolved.is_dir() or (resolved != host_resolved and host_resolved not in resolved.parents):
+                return
+        except OSError:
+            return
+        key = str(resolved)
+        if key not in seen:
+            roots.append({"name": name, "path": normalized, "protocol": protocol, "actual": resolved})
+            seen.add(key)
+
+    smb = read_text(host_path("/etc/samba/smb.conf"))
+    current = None
+    sections = {}
+    for raw in smb.splitlines():
+        line = raw.strip()
+        section = re.fullmatch(r"\[([^\]]+)\]", line)
+        if section:
+            current = section.group(1)
+            sections[current] = {}
+        elif current and "=" in line and not line.startswith(("#", ";")):
+            key, value = line.split("=", 1)
+            sections[current][key.strip().lower()] = value.strip()
+    for name, options in sections.items():
+        if name.lower() not in ("global", "homes", "printers", "print$") and options.get("path"):
+            add(name, options["path"], "SMB")
+
+    configured = [item.strip() for item in os.getenv("SHARE_ROOTS", "").split(",") if item.strip()]
+    for path in configured:
+        add(Path(path).name or path, path, "Konfiguriert")
+
+    if not roots:
+        for base_path in ("/mnt", "/srv", "/media"):
+            base = host_path(base_path)
+            try:
+                children = sorted((item for item in base.iterdir() if item.is_dir()), key=lambda p: p.name.lower())
+                if children:
+                    for child in children[:30]:
+                        add(child.name, f"{base_path}/{child.name}")
+                elif base.is_dir():
+                    add(Path(base_path).name, base_path)
+            except OSError:
+                pass
+    return roots
+
+
+def shares_info(share_index=None, relative=""):
+    roots = share_roots()
+    public_roots = []
+    for index, root in enumerate(roots):
+        try:
+            stats = os.statvfs(root["actual"])
+            total = stats.f_blocks * stats.f_frsize
+            free = stats.f_bavail * stats.f_frsize
+        except OSError:
+            total = free = 0
+        public_roots.append({
+            "id": index,
+            "name": root["name"],
+            "path": root["path"],
+            "protocol": root["protocol"],
+            "total": total,
+            "free": free,
+        })
+    if share_index is None:
+        return {"shares": public_roots, "entries": [], "relative": ""}
+    try:
+        root = roots[int(share_index)]
+    except (ValueError, IndexError, TypeError):
+        raise ValueError("Unbekannte Freigabe")
+    relative = unquote(relative).strip("/")
+    target = (root["actual"] / relative).resolve()
+    if target != root["actual"] and root["actual"] not in target.parents:
+        raise ValueError("Pfad außerhalb der Freigabe")
+    if not target.is_dir():
+        raise ValueError("Ordner nicht gefunden")
+    entries = []
+    try:
+        items = sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+        for item in items[:500]:
+            try:
+                stat_info = item.stat()
+                entries.append({
+                    "name": item.name,
+                    "type": "directory" if item.is_dir() else "file",
+                    "size": stat_info.st_size,
+                    "modified": int(stat_info.st_mtime),
+                    "hidden": item.name.startswith("."),
+                })
+            except OSError:
+                pass
+    except OSError as exc:
+        raise ValueError(str(exc))
+    return {
+        "shares": public_roots,
+        "selected": int(share_index),
+        "relative": relative,
+        "entries": entries,
+        "truncated": len(entries) == 500,
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = f"UbuntuDashboard/{VERSION}"
 
@@ -354,13 +495,21 @@ class Handler(BaseHTTPRequestHandler):
                 "version": VERSION,
                 "dashboardUptime": int(time.time() - STARTED),
                 "system": system_info(),
-                "docker": docker_info(),
-                "storage": storage_info(),
+                "docker": cached("docker", 1.5, docker_info),
+                "storage": cached("storage", 8, storage_info),
             })
         elif path == "/api/processes":
             self.send_json({"processes": process_info()})
         elif path == "/api/logs":
             self.send_json(log_info())
+        elif path == "/api/shares":
+            query = parse_qs(urlparse(self.path).query)
+            share = query.get("share", [None])[0]
+            relative = query.get("path", [""])[0]
+            try:
+                self.send_json(shares_info(share, relative))
+            except ValueError as exc:
+                self.send_json({"error": str(exc)}, 400)
         elif path == "/api/health":
             self.send_json({"status": "ok", "version": VERSION})
         elif path.startswith("/api/"):
@@ -383,6 +532,7 @@ class Handler(BaseHTTPRequestHandler):
         container, action = match.groups()
         try:
             docker_request("POST", f"/containers/{container}/{action}?t=10")
+            _cache.pop("docker", None)
             self.send_json({"ok": True, "action": action})
         except Exception as exc:
             self.send_json({"error": str(exc)}, 409)

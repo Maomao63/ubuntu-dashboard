@@ -4,16 +4,17 @@ services:
     build:
       context: .
       args:
-        APP_VERSION: "1.1.0"
+        APP_VERSION: "1.2.0"
     container_name: ubuntu-dashboard
     restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
-      APP_VERSION: "1.1.0"
+      APP_VERSION: "1.2.0"
       DASHBOARD_USER: "${DASHBOARD_USER:-}"
       DASHBOARD_PASSWORD: "${DASHBOARD_PASSWORD:-}"
       ALLOW_DOCKER_ACTIONS: "${ALLOW_DOCKER_ACTIONS:-true}"
+      SHARE_ROOTS: "${SHARE_ROOTS:-}"
     volumes:
       - /:/host:ro
       - /var/run/docker.sock:/var/run/docker.sock
