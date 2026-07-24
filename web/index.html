@@ -5,10 +5,36 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0e13">
   <title>Ubuntu Server Dashboard</title>
-  <link rel="stylesheet" href="/vendor/xterm.css?v=1.12.0">
-  <link rel="stylesheet" href="/styles.css?v=1.12.0">
+  <link rel="stylesheet" href="/vendor/xterm.css?v=1.12.1">
+  <link rel="stylesheet" href="/styles.css?v=1.12.1">
 </head>
 <body>
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="icon-cpu" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3M10 10h4v4h-4z"/></symbol>
+    <symbol id="icon-memory" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10v4M10 10v4M14 10v4M17 10v4M6 3v3M10 3v3M14 3v3M18 3v3M6 18v3M10 18v3M14 18v3M18 18v3"/></symbol>
+    <symbol id="icon-network" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="18" r="2"/><path d="M12 7v4M5 16v-3h14v3M12 11H5"/></symbol>
+    <symbol id="icon-docker" viewBox="0 0 24 24"><path d="M3 12h18c-.5 5-3.8 8-9 8-4.5 0-7.5-2.2-9-6z"/><path d="M6 9h3v3H6zM10 9h3v3h-3zM14 9h3v3h-3zM10 5h3v3h-3z"/></symbol>
+    <symbol id="icon-server" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01M11 6.5h7M11 17.5h7"/></symbol>
+    <symbol id="icon-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="icon-shield" viewBox="0 0 24 24"><path d="M12 2 20 5v6c0 5-3.2 8.5-8 11-4.8-2.5-8-6-8-11V5z"/><path d="m8.5 12 2.2 2.2 4.8-5"/></symbol>
+    <symbol id="icon-tag" viewBox="0 0 24 24"><path d="M20 13 13 20 3 10V3h7z"/><circle cx="8" cy="8" r="1"/></symbol>
+    <symbol id="icon-layers" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5zM3 12l9 5 9-5M3 17l9 5 9-5"/></symbol>
+    <symbol id="icon-thermometer" viewBox="0 0 24 24"><path d="M10 14.8V5a3 3 0 1 1 6 0v9.8a5 5 0 1 1-6 0Z"/><path d="M13 6v10"/></symbol>
+    <symbol id="icon-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7"/></symbol>
+    <symbol id="icon-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+    <symbol id="icon-activity" viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6"/></symbol>
+    <symbol id="icon-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2"/><path d="M3 20c0-4 2-6 6-6s6 2 6 6M15 14c3 0 5 2 5 5"/></symbol>
+    <symbol id="icon-drive" viewBox="0 0 24 24"><path d="M5 4h14l2 13H3z"/><path d="M6 17v3h12v-3M8 9h8"/></symbol>
+    <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 9a7 7 0 0 1 11-2l3 5M18 15a7 7 0 0 1-11 2l-3-5"/></symbol>
+    <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3z"/></symbol>
+    <symbol id="icon-file" viewBox="0 0 24 24"><path d="M6 2h8l4 4v16H6z"/><path d="M14 2v5h5M9 12h6M9 16h6"/></symbol>
+    <symbol id="icon-edit" viewBox="0 0 24 24"><path d="m4 20 4-1 11-11-3-3L5 16zM14 7l3 3"/></symbol>
+    <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6"/></symbol>
+    <symbol id="icon-arrow-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6M9 12h11"/></symbol>
+    <symbol id="icon-folder-plus" viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3zM12 11v6M9 14h6"/></symbol>
+    <symbol id="icon-file-plus" viewBox="0 0 24 24"><path d="M6 2h8l4 4v16H6zM14 2v5h5M12 11v6M9 14h6"/></symbol>
+    <symbol id="icon-open" viewBox="0 0 24 24"><path d="M4 8h7l2 2h7l-2 9H4zM15 5h5v5M20 5l-7 7"/></symbol>
+  </svg>
   <aside class="sidebar">
     <a class="brand" href="#overview" aria-label="Server Dashboard">
       <span class="brand-mark"><img id="distro-logo" alt="" src="https://cdn.simpleicons.org/ubuntu/E95420"></span>
@@ -43,7 +69,7 @@
         </div>
       </div>
       <div class="header-actions">
-        <span class="global-health healthy" id="global-health"><i>✓</i><b id="global-health-label" data-i18n="health.operational">All systems operational</b></span>
+        <span class="global-health healthy" id="global-health"><i><svg><use href="#icon-shield"></use></svg></i><b id="global-health-label" data-i18n="health.operational">All systems operational</b></span>
         <label class="layout-toggle header-layout" title="Move dashboard cards">
           <input id="layout-edit" type="checkbox">
           <span class="toggle-track"><i></i></span>
@@ -60,26 +86,26 @@
           <div><h2 id="hostname">Linux Server</h2><p><span id="os">Linux</span> · Kernel <span id="kernel">–</span></p></div>
         </div>
         <div class="hero-meta">
-          <div><span class="hero-meta-icon orange">▤</span><p><small data-i18n="overview.uptime">Uptime</small><strong id="uptime">–</strong></p></div>
-          <div><span class="hero-meta-icon">◷</span><p><small data-i18n="overview.systemTime">System time</small><strong id="clock-time">--:--:--</strong><em id="clock-date">–</em></p></div>
-          <div><span class="hero-meta-icon green">♢</span><p><small data-i18n="overview.health">Health</small><strong id="hero-health">Healthy</strong></p></div>
-          <div><span class="hero-meta-icon orange">◇</span><p><small data-i18n="details.architecture">Architecture</small><strong id="hero-architecture">–</strong></p></div>
+          <div><span class="hero-meta-icon orange"><svg><use href="#icon-server"></use></svg></span><p><small data-i18n="overview.uptime">Uptime</small><strong id="uptime">–</strong></p></div>
+          <div><span class="hero-meta-icon"><svg><use href="#icon-clock"></use></svg></span><p><small data-i18n="overview.systemTime">System time</small><strong id="clock-time">--:--:--</strong><em id="clock-date">–</em></p></div>
+          <div><span class="hero-meta-icon green"><svg><use href="#icon-shield"></use></svg></span><p><small data-i18n="overview.health">Health</small><strong id="hero-health">Healthy</strong></p></div>
+          <div><span class="hero-meta-icon orange"><svg><use href="#icon-tag"></use></svg></span><p><small data-i18n="details.architecture">Architecture</small><strong id="hero-architecture">–</strong></p></div>
         </div>
       </div>
 
       <div class="metrics" data-overview-section="metrics">
         <article class="metric orange" data-widget="cpu">
-          <div class="metric-title"><span class="metric-icon">⚙</span><b data-i18n="overview.processor">Processor</b></div>
+          <div class="metric-title"><span class="metric-icon"><svg><use href="#icon-cpu"></use></svg></span><b data-i18n="overview.processor">Processor</b></div>
           <div class="metric-value"><div><strong id="cpu-value">0%</strong><span id="cpu-sub">–</span></div><div class="ring" id="cpu-ring"><span id="cpu-ring-value">0</span></div></div>
           <svg class="metric-chart" viewBox="0 0 120 34" preserveAspectRatio="none"><polyline id="cpu-line"></polyline></svg>
         </article>
         <article class="metric violet" data-widget="memory">
-          <div class="metric-title"><span class="metric-icon">▦</span><b data-i18n="overview.memory">Memory</b></div>
+          <div class="metric-title"><span class="metric-icon"><svg><use href="#icon-memory"></use></svg></span><b data-i18n="overview.memory">Memory</b></div>
           <div class="metric-value"><div><strong id="ram-value">0%</strong><span id="ram-sub">–</span></div><div class="ring" id="ram-ring"><span id="ram-ring-value">0</span></div></div>
           <svg class="metric-chart" viewBox="0 0 120 34" preserveAspectRatio="none"><polyline id="ram-line"></polyline></svg>
         </article>
         <article class="metric network-metric cyan" data-widget="network">
-          <div class="network-head"><div class="metric-icon">⌘</div><b data-i18n="overview.network">Network</b><span id="network-interface">–</span></div>
+          <div class="network-head"><div class="metric-icon"><svg><use href="#icon-network"></use></svg></div><b data-i18n="overview.network">Network</b><span id="network-interface">–</span></div>
           <div class="network-rates">
             <div class="network-rate download"><span><small data-i18n="network.download">Download</small><strong id="network-down">0 B/s</strong></span></div>
             <div class="network-rate upload"><span><small data-i18n="network.upload">Upload</small><strong id="network-up">0 B/s</strong></span></div>
@@ -92,7 +118,7 @@
           </div>
         </article>
         <article class="metric green" data-widget="docker">
-          <div class="metric-title"><span class="metric-icon">⬡</span><b>Docker</b></div>
+          <div class="metric-title"><span class="metric-icon"><svg><use href="#icon-docker"></use></svg></span><b>Docker</b></div>
           <div class="metric-value"><div><strong id="docker-value">–</strong><span id="docker-sub">–</span></div><div class="ring docker-ring" id="docker-ring"><span id="docker-ring-value">0</span></div></div>
           <button class="metric-link" data-jump="docker">View all containers →</button>
         </article>
@@ -101,29 +127,29 @@
       <div class="dashboard-grid reference-details" data-overview-section="details">
         <article class="panel" data-panel-widget="containers">
           <div class="panel-head">
-            <div><span class="panel-icon">▱</span><h3 data-i18n="panel.containers">Stacks</h3></div>
+            <div><span class="panel-icon"><svg class="ui-icon"><use href="#icon-layers"></use></svg></span><h3 data-i18n="panel.containers">Stacks</h3></div>
           </div>
           <div id="container-preview" class="container-preview skeleton-block"></div>
         </article>
         <article class="panel disk-temperature-panel" data-panel-widget="temperatures">
           <div class="panel-head">
-            <div><span class="panel-icon">♨</span><h3 data-i18n="panel.temperatures">Disk Temperatures</h3></div>
+            <div><span class="panel-icon"><svg class="ui-icon"><use href="#icon-thermometer"></use></svg></span><h3 data-i18n="panel.temperatures">Disk Temperatures</h3></div>
           </div>
           <div id="temperatures" class="temperature-list empty-state">No disks detected</div>
         </article>
         <article class="panel storage-overview-panel" data-panel-widget="storage">
           <div class="panel-head">
-            <div><span class="panel-icon">▤</span><h3 data-i18n="panel.storage">Storage Pools</h3></div>
+            <div><span class="panel-icon"><svg class="ui-icon"><use href="#icon-database"></use></svg></span><h3 data-i18n="panel.storage">Storage Pools</h3></div>
           </div>
           <div id="storage-preview" class="storage-list skeleton-block"></div>
         </article>
       </div>
       <div class="system-strip">
-        <div><span>⌁</span><p><small data-i18n="overview.loadAverage">Load average</small><strong id="load-average">–</strong><em>1m · 5m · 15m</em></p></div>
-        <div><span>⌁</span><p><small data-i18n="overview.activeProcesses">Active processes</small><strong id="process-count">–</strong><em data-i18n="overview.hostProcesses">host processes</em></p></div>
-        <div><span>◉</span><p><small data-i18n="details.cores">CPU cores</small><strong id="cores">–</strong><em id="architecture">–</em></p></div>
-        <div><span>▱</span><p><small data-i18n="overview.rootUsage">Root usage</small><strong id="root-usage">–</strong><em id="root-usage-sub">–</em></p></div>
-        <div><span>↻</span><p><small data-i18n="overview.swapUsage">Swap usage</small><strong id="swap-usage">–</strong><em id="swap-usage-sub">–</em></p></div>
+        <div><span><svg><use href="#icon-chart"></use></svg></span><p><small data-i18n="overview.loadAverage">Load average</small><strong id="load-average">–</strong><em>1m · 5m · 15m</em></p></div>
+        <div><span><svg><use href="#icon-activity"></use></svg></span><p><small data-i18n="overview.activeProcesses">Active processes</small><strong id="process-count">–</strong><em data-i18n="overview.hostProcesses">host processes</em></p></div>
+        <div><span><svg><use href="#icon-cpu"></use></svg></span><p><small data-i18n="details.cores">CPU cores</small><strong id="cores">–</strong><em id="architecture">–</em></p></div>
+        <div><span><svg><use href="#icon-drive"></use></svg></span><p><small data-i18n="overview.rootUsage">Root usage</small><strong id="root-usage">–</strong><em id="root-usage-sub">–</em></p></div>
+        <div><span><svg><use href="#icon-refresh"></use></svg></span><p><small data-i18n="overview.swapUsage">Swap usage</small><strong id="swap-usage">–</strong><em id="swap-usage-sub">–</em></p></div>
       </div>
     </section>
 
@@ -147,7 +173,7 @@
         <button class="mobile-menu browser-mobile-menu" aria-label="Open menu">☰</button>
         <div><h2 data-i18n="nav.shares">Data browser</h2><p data-i18n="section.shares">Browse and manage files across detected host data directories.</p></div>
         <div class="browser-storage-summary">
-          <span class="summary-disk">▤</span>
+          <span class="summary-disk"><svg class="ui-icon"><use href="#icon-database"></use></svg></span>
           <div><small data-i18n="browser.storageLocation">STORAGE LOCATION</small><strong id="browser-root-name">Select a location</strong><em id="browser-root-protocol">–</em></div>
           <div class="summary-capacity"><strong id="browser-root-capacity">–</strong><div class="bar"><i id="browser-root-bar"></i></div><small id="browser-root-percent">–</small></div>
         </div>
@@ -156,12 +182,12 @@
         <div id="share-list" class="share-list browser-root-tabs loading">Searching locations…</div>
         <article class="panel file-browser">
           <div class="file-toolbar">
-            <button class="action browser-up" id="share-up" disabled>←</button>
+            <button class="action browser-up" id="share-up" disabled><svg class="ui-icon"><use href="#icon-arrow-left"></use></svg></button>
             <div id="share-breadcrumbs" class="breadcrumbs"><span data-i18n="shares.select">Select a share</span></div>
             <span id="share-count" class="file-count">–</span>
-            <button class="action browser-create" id="new-folder" disabled>▱＋ <span data-i18n="browser.newFolder">New folder</span></button>
-            <button class="action browser-create" id="new-file" disabled>▤＋ <span data-i18n="browser.newFile">New file</span></button>
-            <button class="action browser-refresh" id="browser-refresh" title="Refresh">↻</button>
+            <button class="action browser-create" id="new-folder" disabled><svg class="ui-icon"><use href="#icon-folder-plus"></use></svg><span data-i18n="browser.newFolder">New folder</span></button>
+            <button class="action browser-create" id="new-file" disabled><svg class="ui-icon"><use href="#icon-file-plus"></use></svg><span data-i18n="browser.newFile">New file</span></button>
+            <button class="action browser-refresh" id="browser-refresh" title="Refresh"><svg class="ui-icon"><use href="#icon-refresh"></use></svg></button>
           </div>
           <div class="file-table-head">
             <span data-i18n="browser.name">Name</span><span data-i18n="browser.owner">Owner</span>
@@ -308,9 +334,9 @@
   </dialog>
 
   <div id="toast" role="status"></div>
-  <script src="/i18n.js?v=1.12.0"></script>
-  <script src="/vendor/xterm.js?v=1.12.0"></script>
-  <script src="/vendor/addon-fit.js?v=1.12.0"></script>
-  <script src="/app.js?v=1.12.0"></script>
+  <script src="/i18n.js?v=1.12.1"></script>
+  <script src="/vendor/xterm.js?v=1.12.1"></script>
+  <script src="/vendor/addon-fit.js?v=1.12.1"></script>
+  <script src="/app.js?v=1.12.1"></script>
 </body>
 </html>

@@ -58,6 +58,8 @@ setInterval(updateClock, 1000);
 const escapeHtml = (value = "") => String(value).replace(/[&<>"']/g, char => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
 }[char]));
+const svgIcon = (name, extra = "") =>
+  `<svg class="ui-icon ${extra}" aria-hidden="true"><use href="#icon-${name}"></use></svg>`;
 
 const bytes = (value = 0, speed = false) => {
   const units = ["B", "KB", "MB", "GB", "TB", "PB"];
@@ -210,7 +212,7 @@ function stackMini(items) {
     const updateAvailable = item.containerIds.some(id => dockerUpdates[id]?.updateAvailable);
     return `
     <button class="stack-row" data-jump="docker">
-      <span><i class="stack-cube">⬡</i><b>${escapeHtml(item.name)}</b>${updateAvailable ? `<i class="image-update-badge">↻</i>` : ""}</span>
+      <span>${svgIcon("layers", "stack-cube")}<b>${escapeHtml(item.name)}</b>${updateAvailable ? `<i class="image-update-badge">${svgIcon("refresh")}</i>` : ""}</span>
       <span class="stack-state"><i class="state-dot ${item.health}"></i>${escapeHtml(t(`health.${item.health}`))}</span>
       <strong>${item.running} / ${item.total}</strong>
     </button>`;
@@ -466,7 +468,7 @@ async function loadShares(share = null, path = "") {
     $("#share-list").classList.remove("loading");
     $("#share-list").innerHTML = data.shares.length ? data.shares.map(item => `
       <button class="share-button ${Number(selectedShare) === item.id ? "active" : ""}" data-share="${item.id}">
-        <span class="share-folder">▰</span>
+        <span class="share-folder">${svgIcon("folder")}</span>
         <span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.protocol)} · ${bytes(item.free)} ${t("common.free")}</small></span>
       </button>`).join("") : `<div class="empty-state">${t("shares.none")}<br><small>SHARE_ROOTS</small></div>`;
     $$("[data-share]").forEach(button => button.addEventListener("click", () => loadShares(Number(button.dataset.share), "")));
@@ -505,7 +507,7 @@ function renderFiles(data) {
     const nextPath = [data.relative, item.name].filter(Boolean).join("/");
     return `<div class="file-row">
       <div class="file-name">
-        <span class="file-icon ${item.type === "directory" ? "folder" : ""}">${item.type === "directory" ? "▰" : "▤"}</span>
+        <span class="file-icon ${item.type === "directory" ? "folder" : ""}">${svgIcon(item.type === "directory" ? "folder" : "file")}</span>
         ${item.type === "directory"
           ? `<button data-open-path="${escapeHtml(nextPath)}">${escapeHtml(item.name)}</button>`
           : `<button data-edit-path="${escapeHtml(nextPath)}">${escapeHtml(item.name)}</button>`}
@@ -515,8 +517,10 @@ function renderFiles(data) {
       <span class="file-meta">${item.type === "directory" ? t("common.folder") : bytes(item.size)}</span>
       <span class="file-meta modified">${new Date(item.modified * 1000).toLocaleString(currentLanguage, {dateStyle: "medium", timeStyle: "short"})}</span>
       <span class="file-actions">
-        ${item.type === "file" ? `<button class="file-action" data-edit-path="${escapeHtml(nextPath)}" title="${escapeHtml(t("common.edit"))}">✎</button>` : ""}
-        <button class="file-action danger" data-delete-path="${escapeHtml(nextPath)}" data-delete-name="${escapeHtml(item.name)}" title="${escapeHtml(t("common.delete"))}">⌫</button>
+        ${item.type === "directory"
+          ? `<button class="file-action" data-open-path="${escapeHtml(nextPath)}" title="${escapeHtml(t("common.open"))}">${svgIcon("open")}</button>`
+          : `<button class="file-action" data-edit-path="${escapeHtml(nextPath)}" title="${escapeHtml(t("common.edit"))}">${svgIcon("edit")}</button>`}
+        <button class="file-action danger" data-delete-path="${escapeHtml(nextPath)}" data-delete-name="${escapeHtml(item.name)}" title="${escapeHtml(t("common.delete"))}">${svgIcon("trash")}</button>
       </span>
     </div>`;
   }).join("") : `<div class="empty-state">${t("common.empty")}</div>`;

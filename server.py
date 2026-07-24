@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
 # Deliberately image-owned: old Compose files must not be able to override the UI version.
-VERSION = "1.12.0"
+VERSION = "1.12.1"
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 ACCOUNT_FILE = Path(os.getenv("ACCOUNT_FILE", "/data/account.json"))

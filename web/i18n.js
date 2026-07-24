@@ -38,7 +38,7 @@ window.I18N = {
     "version.latest": "Latest version", "version.available": "New version available", "version.unavailable": "Version check unavailable", "version.github": "Latest on GitHub",
     "docker.updateAvailable": "Container image update available",
     "docker.stacks": "stacks", "docker.noStacks": "No Compose stacks detected",
-    "browser.writeAccess": "WRITE ACCESS", "browser.locations": "Locations", "browser.newFolder": "Folder", "browser.newFile": "Text file",
+    "browser.writeAccess": "WRITE ACCESS", "browser.locations": "Locations", "browser.newFolder": "New folder", "browser.newFile": "New file",
     "browser.newFolderTitle": "Create folder", "browser.newFileTitle": "New text file", "browser.folderName": "Folder name", "browser.fileName": "File name",
     "browser.destructive": "DESTRUCTIVE ACTION", "browser.confirmDelete": "Delete permanently?", "browser.deleteWarning": "This cannot be undone. The selected item and all contents will be deleted:",
     "browser.saved": "File saved", "browser.created": "Folder created", "browser.deleted": "Item deleted",
@@ -59,7 +59,7 @@ window.I18N = {
     "storage.drives": "drives", "storage.used": "used", "storage.total": "total",
     "disk.running": "Running", "disk.active": "Running", "disk.standby": "Standby", "disk.unknown": "Unknown",
     "health.healthy": "Healthy", "health.warning": "Warning", "health.critical": "Critical",
-    "common.cancel": "Cancel", "common.save": "Save", "common.create": "Create", "common.delete": "Delete permanently", "common.edit": "Edit"
+    "common.cancel": "Cancel", "common.save": "Save", "common.create": "Create", "common.delete": "Delete permanently", "common.edit": "Edit", "common.open": "Open"
   },
   de: {
     "nav.overview": "Übersicht", "nav.containers": "Container", "nav.storage": "Speicher",
@@ -100,7 +100,7 @@ window.I18N = {
     "version.latest": "Neueste Version", "version.available": "Neue Version verfügbar", "version.unavailable": "Versionsprüfung nicht verfügbar", "version.github": "Neueste auf GitHub",
     "docker.updateAvailable": "Container-Image-Update verfügbar",
     "docker.stacks": "Stacks", "docker.noStacks": "Keine Compose-Stacks erkannt",
-    "browser.writeAccess": "SCHREIBZUGRIFF", "browser.locations": "Orte", "browser.newFolder": "Ordner", "browser.newFile": "Textdatei",
+    "browser.writeAccess": "SCHREIBZUGRIFF", "browser.locations": "Orte", "browser.newFolder": "Neuer Ordner", "browser.newFile": "Neue Datei",
     "browser.newFolderTitle": "Ordner erstellen", "browser.newFileTitle": "Neue Textdatei", "browser.folderName": "Ordnername", "browser.fileName": "Dateiname",
     "browser.destructive": "ENDGÜLTIGE AKTION", "browser.confirmDelete": "Endgültig löschen?", "browser.deleteWarning": "Dies kann nicht rückgängig gemacht werden. Das Element und alle Inhalte werden gelöscht:",
     "browser.saved": "Datei gespeichert", "browser.created": "Ordner erstellt", "browser.deleted": "Element gelöscht",
@@ -121,7 +121,7 @@ window.I18N = {
     "storage.drives": "Laufwerke", "storage.used": "belegt", "storage.total": "gesamt",
     "disk.running": "Aktiv", "disk.active": "Aktiv", "disk.standby": "Standby", "disk.unknown": "Unbekannt",
     "health.healthy": "In Ordnung", "health.warning": "Warnung", "health.critical": "Kritisch",
-    "common.cancel": "Abbrechen", "common.save": "Speichern", "common.create": "Erstellen", "common.delete": "Endgültig löschen", "common.edit": "Bearbeiten"
+    "common.cancel": "Abbrechen", "common.save": "Speichern", "common.create": "Erstellen", "common.delete": "Endgültig löschen", "common.edit": "Bearbeiten", "common.open": "Öffnen"
   },
   fr: {
     "overview.systemTime": "Heure système", "overview.health": "État", "overview.loadAverage": "Charge moyenne", "overview.activeProcesses": "Processus actifs", "overview.hostProcesses": "processus hôte", "overview.rootUsage": "Utilisation racine", "overview.swapUsage": "Utilisation swap", "health.operational": "Tous les systèmes opérationnels", "health.warnings": "Avertissements détectés", "health.attention": "Intervention requise", "browser.storageLocation": "EMPLACEMENT", "browser.capacityUnavailable": "Capacité indisponible", "common.usedOf": "utilisés sur",
