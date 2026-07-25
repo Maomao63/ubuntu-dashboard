@@ -1056,6 +1056,20 @@ body:has(#page-shares.active) main { padding-top: 28px; }
 }
 .iframe-toggle-card h3 { margin: 0 0 5px; font-size: 13px; }
 .iframe-toggle-card p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.iframe-setting-switch {
+  min-height: 32px; display: inline-flex; align-items: center; gap: 9px; padding: 0 10px;
+  border: 0; border-radius: 7px; color: #9ba4af; background: transparent;
+  cursor: pointer; user-select: none;
+}
+.iframe-setting-switch > span { width: 31px; height: 17px; padding: 2px; border-radius: 20px; background: #303640; transition: .2s; }
+.iframe-setting-switch > span i { display: block; width: 13px; height: 13px; border-radius: 50%; background: #9da5af; transition: .2s; }
+.iframe-setting-switch b { font-size: 9px; font-weight: 600; }
+.iframe-setting-switch[aria-checked="true"] { color: white; }
+.iframe-setting-switch[aria-checked="true"] > span { background: #7289da55; box-shadow: inset 0 0 0 1px #7289da80; }
+.iframe-setting-switch[aria-checked="true"] > span i { transform: translateX(14px); background: #8da2ef; }
+.iframe-setting-switch:focus-visible { outline: 2px solid #8da2ef; outline-offset: 2px; }
+.iframe-setting-switch:disabled { opacity: .6; cursor: wait; }
+#iframe-toggle-status { grid-column: 2 / -1; min-height: 12px; color: #e6b956; font-size: 8px; text-align: right; }
 .iframe-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .iframe-actions .action {
   min-height: 36px; display: inline-flex; align-items: center; gap: 7px;
@@ -1091,7 +1105,8 @@ body:has(#page-shares.active) main { padding-top: 28px; }
 
 @media (max-width: 760px) {
   .iframe-toggle-card { grid-template-columns: 42px minmax(0, 1fr); }
-  .iframe-toggle-card .setting-switch { grid-column: 1 / -1; }
+  .iframe-setting-switch { grid-column: 1 / -1; justify-self: start; }
+  #iframe-toggle-status { grid-column: 1 / -1; text-align: left; }
   .iframe-actions { align-items: stretch; flex-direction: column; }
   .iframe-actions > * { justify-content: center; }
   .iframe-panel, .iframe-empty { min-height: calc(100vh - 275px); }

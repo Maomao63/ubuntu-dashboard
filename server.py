@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
 # Deliberately image-owned: old Compose files must not be able to override the UI version.
-VERSION = "1.13.0"
+VERSION = "1.13.1"
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 CONFIG_FILE = Path(os.getenv("CONFIG_FILE", "/data/config.json"))
@@ -265,7 +265,13 @@ def iframe_source(settings):
 
 def public_iframe_settings():
     settings = load_iframe_settings()
-    return {**settings, "src": iframe_source(settings)}
+    try:
+        source = iframe_source(settings)
+        error = ""
+    except (ValueError, TypeError) as exc:
+        source = ""
+        error = str(exc)
+    return {**settings, "src": source, "error": error}
 
 
 def account_configured():
@@ -1927,20 +1933,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "SAMEORIGIN")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-        frame_sources = "'self'"
-        try:
-            iframe = load_iframe_settings()
-            source = iframe_source(iframe) if iframe["enabled"] else ""
-            if source:
-                parsed = urlparse(source)
-                frame_sources += f" {parsed.scheme}://{parsed.netloc}"
-        except (ValueError, TypeError):
-            pass
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; img-src 'self' https://cdn.simpleicons.org data:; "
             "style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws: wss:; "
-            f"frame-src {frame_sources}"
+            "frame-src 'self' http: https:"
         )
 
     def send_json(self, payload, status=200, headers=None):
@@ -2095,6 +2092,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/iframe":
             self.handle_iframe_update()
+            return
+        if path == "/api/iframe/enabled":
+            self.handle_iframe_enabled()
             return
         if path == "/api/networks/create":
             self.handle_network_create()
@@ -2314,6 +2314,17 @@ class Handler(BaseHTTPRequestHandler):
             save_iframe_settings(updated)
             self.send_json({"ok": True, **public_iframe_settings()})
         except (ValueError, TypeError, OSError, json.JSONDecodeError) as exc:
+            self.send_json({"error": str(exc)}, 400)
+
+    def handle_iframe_enabled(self):
+        try:
+            length = min(int(self.headers.get("Content-Length", "0")), 4096)
+            payload = json.loads(self.rfile.read(length) or b"{}")
+            updated = load_iframe_settings()
+            updated["enabled"] = bool(payload.get("enabled"))
+            save_iframe_settings(updated)
+            self.send_json({"ok": True, **public_iframe_settings()})
+        except (OSError, json.JSONDecodeError) as exc:
             self.send_json({"error": str(exc)}, 400)
 
     def handle_network_create(self):

@@ -1207,7 +1207,7 @@ function renderIframe() {
 function applyIframeAvailability(config) {
   iframeConfig = config || {enabled: false, url: "", port: "", src: ""};
   $$(".iframe-nav").forEach(item => item.hidden = !iframeConfig.enabled);
-  $("#iframe-enabled").checked = Boolean(iframeConfig.enabled);
+  $("#iframe-enabled").setAttribute("aria-checked", String(Boolean(iframeConfig.enabled)));
   $("#iframe-enabled-label").textContent = t(iframeConfig.enabled ? "common.enabled" : "common.disabled");
   renderIframe();
   if (!iframeConfig.enabled && currentPage === "iframe") setPage("overview");
@@ -1238,11 +1238,12 @@ $("#iframe-refresh").addEventListener("click", () => {
   requestAnimationFrame(() => frame.src = iframeConfig.src);
 });
 
-$("#iframe-enabled").addEventListener("change", async event => {
-  const enabled = event.currentTarget.checked;
+$("#iframe-enabled").addEventListener("click", async event => {
+  const enabled = event.currentTarget.getAttribute("aria-checked") !== "true";
   event.currentTarget.disabled = true;
+  $("#iframe-toggle-status").textContent = t("iframe.saving");
   try {
-    const response = await fetch("/api/iframe", {
+    const response = await fetch("/api/iframe/enabled", {
       method: "POST",
       headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken},
       body: JSON.stringify({enabled})
@@ -1250,9 +1251,11 @@ $("#iframe-enabled").addEventListener("change", async event => {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || t("iframe.saveFailed"));
     applyIframeAvailability(data);
+    $("#iframe-toggle-status").textContent = "";
     toast(t(enabled ? "iframe.activated" : "iframe.deactivated"));
   } catch (error) {
-    event.currentTarget.checked = !enabled;
+    applyIframeAvailability(iframeConfig);
+    $("#iframe-toggle-status").textContent = error.message;
     toast(error.message, true);
   } finally {
     event.currentTarget.disabled = false;

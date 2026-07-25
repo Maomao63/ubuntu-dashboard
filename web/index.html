@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0e13">
   <title>Ubuntu Server Dashboard</title>
-  <link rel="stylesheet" href="/vendor/xterm.css?v=1.13.0">
-  <link rel="stylesheet" href="/styles.css?v=1.13.0">
+  <link rel="stylesheet" href="/vendor/xterm.css?v=1.13.1">
+  <link rel="stylesheet" href="/styles.css?v=1.13.1">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -336,7 +336,8 @@
         <article class="panel iframe-toggle-card">
           <span class="preferences-icon">&lt;/&gt;</span>
           <div><h3 data-i18n="iframe.settingsTitle">iFrame tab</h3><p data-i18n="iframe.settingsDescription">Enable an optional embedded web interface in the sidebar.</p></div>
-          <label class="setting-switch"><input id="iframe-enabled" type="checkbox"><span><i></i></span><b id="iframe-enabled-label">Disabled</b></label>
+          <button class="iframe-setting-switch" id="iframe-enabled" type="button" role="switch" aria-checked="false"><span><i></i></span><b id="iframe-enabled-label">Disabled</b></button>
+          <small id="iframe-toggle-status" role="status"></small>
         </article>
         <article class="panel notification-card">
           <div class="notification-head">
@@ -433,9 +434,9 @@
   </dialog>
 
   <div id="toast" role="status"></div>
-  <script src="/i18n.js?v=1.13.0"></script>
-  <script src="/vendor/xterm.js?v=1.13.0"></script>
-  <script src="/vendor/addon-fit.js?v=1.13.0"></script>
-  <script src="/app.js?v=1.13.0"></script>
+  <script src="/i18n.js?v=1.13.1"></script>
+  <script src="/vendor/xterm.js?v=1.13.1"></script>
+  <script src="/vendor/addon-fit.js?v=1.13.1"></script>
+  <script src="/app.js?v=1.13.1"></script>
 </body>
 </html>
