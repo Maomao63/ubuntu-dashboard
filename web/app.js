@@ -1239,8 +1239,9 @@ $("#iframe-refresh").addEventListener("click", () => {
 });
 
 $("#iframe-enabled").addEventListener("click", async event => {
-  const enabled = event.currentTarget.getAttribute("aria-checked") !== "true";
-  event.currentTarget.disabled = true;
+  const button = event.currentTarget;
+  const enabled = button.getAttribute("aria-checked") !== "true";
+  button.disabled = true;
   $("#iframe-toggle-status").textContent = t("iframe.saving");
   try {
     const response = await fetch("/api/iframe/enabled", {
@@ -1258,7 +1259,7 @@ $("#iframe-enabled").addEventListener("click", async event => {
     $("#iframe-toggle-status").textContent = error.message;
     toast(error.message, true);
   } finally {
-    event.currentTarget.disabled = false;
+    button.disabled = false;
   }
 });
 
