@@ -301,6 +301,17 @@ tbody tr:hover { background: #141920; }
 .storage-member b { font-size: 11px; }
 .storage-member small { color: var(--muted); font-size: 8px; margin-top: 3px; }
 .storage-member > span { color: #b9c0c9; font-size: 9px; white-space: nowrap; }
+.storage-topology-group { margin-top: 15px; }
+.storage-topology-header { display: flex; align-items: center; padding-bottom: 8px; border-bottom: 1px solid #2a3038; margin-bottom: 5px; }
+.vdev-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; background: #282e37; color: #b9c0c9; }
+.vdev-badge.badge-raidz { background: #1a4f8b24; color: #4b9fff; border: 1px solid #4b9fff45; }
+.vdev-badge.badge-mirror { background: #8b3c1a24; color: #ff8c4b; border: 1px solid #ff8c4b45; }
+.vdev-badge.badge-parity { background: #8b1a4f24; color: #ff4b9f; border: 1px solid #ff4b9f45; }
+.vdev-badge.badge-data { background: #1a8b3c24; color: #4bff8c; border: 1px solid #4bff8c45; }
+.vdev-badge.badge-cache { background: #8b8b1a24; color: #ffff4b; border: 1px solid #ffff4b45; }
+.vdev-badge.badge-stripe { background: #4f1a8b24; color: #9f4bff; border: 1px solid #9f4bff45; }
+.vdev-badge.badge-default { background: #282e37; color: #b9c0c9; border: 1px solid #3c4450; }
+.storage-topology-members { margin-left: 5px; padding-left: 10px; border-left: 2px solid #2a3038; }
 .read-only-badge, .write-badge {
   color: var(--green); border: 1px solid #43d17a35; border-radius: 20px;
   padding: 7px 10px; font-size: 8px; letter-spacing: .12em;

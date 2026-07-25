@@ -298,6 +298,58 @@ function renderContainers(docker) {
   $$("[data-action]").forEach(button => button.addEventListener("click", () => dockerAction(button)));
 }
 
+function renderStorageTopology(group) {
+  if (!group.members || !group.members.length) return "";
+  let grouped = {};
+  if (group.type.includes("ZFS")) {
+    group.members.forEach(m => {
+      let vdev = m.vdev || "data";
+      if (!grouped[vdev]) grouped[vdev] = [];
+      grouped[vdev].push(m);
+    });
+  } else if (group.type.includes("Unraid")) {
+    group.members.forEach(m => {
+      let role = m.role || "data";
+      if (!grouped[role]) grouped[role] = [];
+      grouped[role].push(m);
+    });
+  } else if (group.type.includes("Linux") || group.type.includes("LVM") || group.type.includes("Btrfs")) {
+    group.members.forEach(m => {
+      let role = m.vdev || m.role || "data";
+      if (!grouped[role]) grouped[role] = [];
+      grouped[role].push(m);
+    });
+  } else {
+    grouped["Disks"] = group.members;
+  }
+  let html = "";
+  for (let key of Object.keys(grouped).sort()) {
+    let members = grouped[key];
+    let badgeClass = "badge-default";
+    let label = key.toUpperCase();
+    if (key.includes("raidz")) badgeClass = "badge-raidz";
+    else if (key.includes("mirror")) badgeClass = "badge-mirror";
+    else if (key === "parity") badgeClass = "badge-parity";
+    else if (key === "cache") badgeClass = "badge-cache";
+    else if (key === "data") badgeClass = "badge-data";
+    else if (key.includes("stripe") || key.includes("raid0")) badgeClass = "badge-stripe";
+    html += `<div class="storage-topology-group">
+      <div class="storage-topology-header">
+        <span class="vdev-badge ${badgeClass}">${escapeHtml(label)}</span>
+      </div>
+      <div class="storage-topology-members">
+        ${members.map(member => `
+        <div class="storage-member">
+          <i class="disk-health ${member.status}"></i>
+          <div><b>${escapeHtml(member.name)}</b><small>/dev/${escapeHtml(member.device)}</small></div>
+          <span>${member.temperature === null ? "" : `${member.temperature} °C · `}${member.used !== undefined && member.role === "data" ? `${bytes(member.used)} / ${bytes(member.total || member.size)}` : bytes(member.size)}</span>
+        </div>`).join("")}
+      </div>
+    </div>`;
+  }
+  return html;
+}
+
 function render(data) {
   overview = data;
   const system = data.system, docker = data.docker;
@@ -399,12 +451,8 @@ function render(data) {
       </div>
       <div class="big-bar"><i style="width:${Math.min(group.percent, 100)}%"></i></div>
       <div class="storage-stats"><span>${bytes(group.used)} ${t("storage.used")}</span><span>${bytes(group.available)} ${t("common.free")} · ${bytes(group.total)} ${t("storage.total")}</span></div>
-      <div class="storage-member-list">${group.members.map(member => `
-        <div class="storage-member">
-          <i class="disk-health ${member.status}"></i>
-          <div><b>${escapeHtml(member.name)}</b><small>${escapeHtml(member.vdev || member.role)} · /dev/${escapeHtml(member.device)}</small></div>
-          <span>${member.temperature === null ? "" : `${member.temperature} °C · `}${member.used !== undefined && member.role === "data" ? `${bytes(member.used)} / ${bytes(member.total || member.size)}` : bytes(member.size)}</span>
-        </div>`).join("")}
+      <div class="storage-member-list">
+        ${renderStorageTopology(group)}
       </div>
     </article>`).join("") : `<div class="error-box">${t("common.noDrives")}</div>`;
   renderContainers(docker);
