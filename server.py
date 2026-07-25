@@ -35,8 +35,9 @@ DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
 VERSION = "1.12.3"
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
-ACCOUNT_FILE = Path(os.getenv("ACCOUNT_FILE", "/data/account.json"))
-NOTIFICATION_FILE = Path(os.getenv("NOTIFICATION_FILE", "/data/notifications.json"))
+CONFIG_FILE = Path(os.getenv("CONFIG_FILE", "/data/config.json"))
+LEGACY_ACCOUNT_FILE = Path(os.getenv("ACCOUNT_FILE", "/data/account.json"))
+LEGACY_NOTIFICATION_FILE = Path(os.getenv("NOTIFICATION_FILE", "/data/notifications.json"))
 ALLOW_ACTIONS = os.getenv("ALLOW_DOCKER_ACTIONS", "true").lower() == "true"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 SESSION_TTL = int(os.getenv("SESSION_TTL", "43200"))
@@ -52,6 +53,7 @@ _cache = {}
 _sessions = {}
 _login_attempts = {}
 _account = None
+_config_lock = threading.RLock()
 _notification_lock = threading.Lock()
 _notification_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 _notification_pending = False
@@ -123,21 +125,53 @@ def password_record(username, password):
     }
 
 
+def load_config():
+    with _config_lock:
+        try:
+            stored = json.loads(CONFIG_FILE.read_text())
+            return stored if isinstance(stored, dict) else {}
+        except (OSError, ValueError, json.JSONDecodeError):
+            return {}
+
+
+def save_config_section(section, value):
+    with _config_lock:
+        config = load_config()
+        config[section] = value
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temporary = CONFIG_FILE.with_suffix(f"{CONFIG_FILE.suffix}.tmp")
+        temporary.write_text(json.dumps(config, indent=2) + "\n")
+        os.chmod(temporary, 0o600)
+        temporary.replace(CONFIG_FILE)
+
+
+def valid_account_record(stored):
+    return (
+        isinstance(stored, dict)
+        and stored.get("username")
+        and stored.get("salt")
+        and stored.get("passwordHash")
+    )
+
+
 def save_account(account):
-    ACCOUNT_FILE.parent.mkdir(parents=True, exist_ok=True)
-    temporary = ACCOUNT_FILE.with_suffix(".tmp")
-    temporary.write_text(json.dumps(account))
-    os.chmod(temporary, 0o600)
-    temporary.replace(ACCOUNT_FILE)
+    save_config_section("account", account)
 
 
 def load_account():
+    stored = load_config().get("account")
+    if valid_account_record(stored):
+        return stored
+
     try:
-        stored = json.loads(ACCOUNT_FILE.read_text())
-        if stored.get("username") and stored.get("salt") and stored.get("passwordHash"):
-            return stored
+        legacy = json.loads(LEGACY_ACCOUNT_FILE.read_text())
+        if valid_account_record(legacy):
+            save_account(legacy)
+            print(f"[config] Migrated account from {LEGACY_ACCOUNT_FILE} to {CONFIG_FILE}")
+            return legacy
     except (OSError, ValueError, json.JSONDecodeError):
         pass
+
     if APP_USER and APP_PASSWORD:
         account = password_record(APP_USER, APP_PASSWORD)
         try:
@@ -149,24 +183,35 @@ def load_account():
 
 
 def save_notification_settings(settings):
-    NOTIFICATION_FILE.parent.mkdir(parents=True, exist_ok=True)
-    temporary = NOTIFICATION_FILE.with_suffix(".tmp")
-    temporary.write_text(json.dumps(settings))
-    os.chmod(temporary, 0o600)
-    temporary.replace(NOTIFICATION_FILE)
+    save_config_section("discord", settings)
+
+
+def normalized_notification_settings(stored):
+    settings = dict(NOTIFICATION_DEFAULTS)
+    if isinstance(stored, dict):
+        for key in settings:
+            if key in stored:
+                settings[key] = stored[key]
+    return settings
 
 
 def load_notification_settings():
-    settings = dict(NOTIFICATION_DEFAULTS)
+    config = load_config()
+    stored = config.get("discord")
+    if isinstance(stored, dict):
+        return normalized_notification_settings(stored)
+
     try:
-        stored = json.loads(NOTIFICATION_FILE.read_text())
-        if isinstance(stored, dict):
-            for key in settings:
-                if key in stored:
-                    settings[key] = stored[key]
+        legacy = json.loads(LEGACY_NOTIFICATION_FILE.read_text())
+        if isinstance(legacy, dict):
+            settings = normalized_notification_settings(legacy)
+            save_notification_settings(settings)
+            print(f"[config] Migrated Discord settings from {LEGACY_NOTIFICATION_FILE} to {CONFIG_FILE}")
+            return settings
     except (OSError, ValueError, json.JSONDecodeError):
         pass
-    return settings
+
+    return normalized_notification_settings(None)
 
 
 def account_configured():
@@ -1882,7 +1927,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/account":
             self.send_json({
                 "username": session.get("username", "local"),
-                "persistent": account_configured() and ACCOUNT_FILE.is_file(),
+                "persistent": account_configured() and CONFIG_FILE.is_file(),
             })
         elif path == "/api/notifications":
             with _notification_lock:

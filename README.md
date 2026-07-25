@@ -157,8 +157,8 @@ services:
 image. The container itself remains read-only; only `/tmp`, the persistent
 configuration directory and the explicitly mounted host paths are writable.
 `DASHBOARD_CONFIG_PATH` may point to any relative or absolute host directory.
-The directory contains `account.json`, `notifications.json` and any future
-persistent dashboard settings.
+The directory contains a single `config.json` with the account, Discord webhook
+and notification preferences.
 
 ## Persistent configuration
 
@@ -181,8 +181,7 @@ writable by the container.
 
 | File | Contents |
 | --- | --- |
-| `account.json` | Dashboard username, password salt and PBKDF2 password hash |
-| `notifications.json` | Discord webhook and notification preferences |
+| `config.json` | Account, Discord webhook and notification preferences |
 
 The Discord webhook token and password hash are sensitive. Do not commit the
 configuration directory to Git, and include it in protected server backups.
@@ -210,6 +209,10 @@ Replace `YOUR_OLD_VOLUME_NAME` with the name printed by `docker volume ls`. If
 an absolute `DASHBOARD_CONFIG_PATH` is configured, use that same absolute path
 as the `src` of the bind mount instead of `$(pwd)/config`. Keep the old volume
 until the migrated account and Discord settings have been verified.
+
+On the first start, legacy `account.json` and `notifications.json` files are
+automatically imported into `config.json`. The legacy files are left untouched
+as a migration backup.
 
 ## Arcane installation
 
