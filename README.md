@@ -1,6 +1,6 @@
 # Ubuntu Dashboard
 
-![Version](https://img.shields.io/badge/version-1.14.0-f05a28)
+![Version](https://img.shields.io/badge/version-1.15.0-f05a28)
 ![Image](https://img.shields.io/badge/image-ghcr.io%2Fmaomao63%2Fubuntu--dashboard-blue)
 ![Platforms](https://img.shields.io/badge/platform-linux%2Famd64%20%7C%20linux%2Farm64-2ea44f)
 [![Publish Docker image](https://github.com/Maomao63/ubuntu-dashboard/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Maomao63/ubuntu-dashboard/actions/workflows/docker-publish.yml)
@@ -200,9 +200,11 @@ browser's local storage.
 The iFrame tab is disabled by default. Enable it under
 **Settings → Embedded dashboards → iFrame tab**. The same settings card lets
 you add, edit or remove multiple named views for Homarr, Homepage or any other
-browser-accessible Docker web interface. Disabling the switch immediately
-removes the navigation entry, unloads the embedded page and redirects an open
-iFrame tab back to the overview.
+browser-accessible Docker web interface. The compact card expands when its
+header or arrow is selected. The Discord watchdog card follows the same
+collapsible layout to keep Settings compact. Disabling the iFrame switch
+immediately removes the navigation entry, unloads the embedded page and
+redirects an open iFrame tab back to the overview.
 
 Choose **Add**, give the view a name and enter the address your browser uses:
 

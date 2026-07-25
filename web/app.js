@@ -38,6 +38,10 @@ function applyLanguage(language) {
     element.placeholder = t(element.dataset.i18nPlaceholder);
     element.setAttribute("aria-label", element.placeholder);
   });
+  $$("[data-i18n-title]").forEach(element => {
+    element.title = t(element.dataset.i18nTitle);
+    element.setAttribute("aria-label", element.title);
+  });
   updatePageHeading();
   updateClock();
   if (overview) render(overview);
@@ -67,6 +71,27 @@ function updateClock() {
 
 $("#language-select").addEventListener("change", event => applyLanguage(event.target.value));
 setInterval(updateClock, 1000);
+
+function setSettingsAccordion(card, expanded) {
+  const toggle = card.querySelector(".settings-accordion-toggle");
+  card.classList.toggle("expanded", expanded);
+  toggle.setAttribute("aria-expanded", String(expanded));
+  toggle.dataset.i18nTitle = expanded ? "settings.collapseSection" : "settings.expandSection";
+  toggle.title = t(toggle.dataset.i18nTitle);
+  toggle.setAttribute("aria-label", toggle.title);
+}
+
+$$(".settings-accordion").forEach(card => {
+  const head = card.querySelector(".settings-accordion-head");
+  const toggle = card.querySelector(".settings-accordion-toggle");
+  const toggleSection = () => setSettingsAccordion(card, !card.classList.contains("expanded"));
+  head.addEventListener("click", event => {
+    if (event.target.closest("button, label, input, select, a")) return;
+    toggleSection();
+  });
+  toggle.addEventListener("click", toggleSection);
+  setSettingsAccordion(card, false);
+});
 
 const escapeHtml = (value = "") => String(value).replace(/[&<>"']/g, char => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
@@ -1282,7 +1307,9 @@ async function deleteIframeTarget(targetId) {
 $("#iframe-add").addEventListener("click", () => openIframeDialog());
 $("#iframe-empty-settings").addEventListener("click", () => {
   setPage("settings");
-  requestAnimationFrame(() => $(".iframe-toggle-card").scrollIntoView({behavior: "smooth", block: "start"}));
+  const card = $(".iframe-toggle-card");
+  setSettingsAccordion(card, true);
+  requestAnimationFrame(() => card.scrollIntoView({behavior: "smooth", block: "start"}));
 });
 $("#iframe-target-select").addEventListener("change", async event => {
   const select = event.currentTarget;

@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0e13">
   <title>Ubuntu Server Dashboard</title>
-  <link rel="stylesheet" href="/vendor/xterm.css?v=1.14.0">
-  <link rel="stylesheet" href="/styles.css?v=1.14.0">
+  <link rel="stylesheet" href="/vendor/xterm.css?v=1.15.0">
+  <link rel="stylesheet" href="/styles.css?v=1.15.0">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -32,6 +32,7 @@
     <symbol id="icon-edit" viewBox="0 0 24 24"><path d="m4 20 4-1 11-11-3-3L5 16zM14 7l3 3"/></symbol>
     <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6"/></symbol>
     <symbol id="icon-arrow-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6M9 12h11"/></symbol>
+    <symbol id="icon-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
     <symbol id="icon-folder-plus" viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3zM12 11v6M9 14h6"/></symbol>
     <symbol id="icon-file-plus" viewBox="0 0 24 24"><path d="M6 2h8l4 4v16H6zM14 2v5h5M12 11v6M9 14h6"/></symbol>
     <symbol id="icon-open" viewBox="0 0 24 24"><path d="M4 8h7l2 2h7l-2 9H4zM15 5h5v5M20 5l-7 7"/></symbol>
@@ -348,20 +349,27 @@
           <span></span>
           <p data-i18n="settings.integrationsCategoryHint">Manage optional Homarr, Homepage and other web interfaces.</p>
         </div>
-        <article class="panel iframe-toggle-card">
-          <div class="iframe-settings-head">
+        <article class="panel iframe-toggle-card settings-accordion" data-accordion="iframe-settings-body">
+          <div class="iframe-settings-head settings-accordion-head">
             <span class="preferences-icon">&lt;/&gt;</span>
             <div><h3 data-i18n="iframe.settingsTitle">iFrame tab</h3><p data-i18n="iframe.settingsDescription">Enable the tab and manage the web interfaces available in it.</p></div>
-            <button class="iframe-setting-switch" id="iframe-enabled" type="button" role="switch" aria-checked="false"><span><i></i></span><b id="iframe-enabled-label">Disabled</b></button>
-          </div>
-          <small id="iframe-toggle-status" role="status"></small>
-          <div class="iframe-target-manager" id="iframe-target-manager">
-            <div class="iframe-target-manager-head">
-              <div><h4 data-i18n="iframe.savedViews">Saved views</h4><small id="iframe-target-count">0 entries</small></div>
-              <button class="browser-create" id="iframe-add" type="button"><svg class="ui-icon"><use href="#icon-plus"></use></svg><span data-i18n="iframe.add">Add</span></button>
+            <div class="settings-accordion-controls">
+              <button class="iframe-setting-switch" id="iframe-enabled" type="button" role="switch" aria-checked="false"><span><i></i></span><b id="iframe-enabled-label">Disabled</b></button>
+              <button class="settings-accordion-toggle" type="button" aria-expanded="false" aria-controls="iframe-settings-body" data-i18n-title="settings.expandSection" title="Expand section"><svg class="ui-icon"><use href="#icon-chevron-down"></use></svg></button>
             </div>
-            <div class="iframe-target-list" id="iframe-target-list"></div>
-            <p class="iframe-manager-hint" data-i18n="iframe.browserHint">Use an address reachable by your browser. Docker-internal service names usually work only inside Docker.</p>
+          </div>
+          <div class="settings-accordion-body" id="iframe-settings-body">
+            <div class="settings-accordion-inner">
+              <small id="iframe-toggle-status" role="status"></small>
+              <div class="iframe-target-manager" id="iframe-target-manager">
+                <div class="iframe-target-manager-head">
+                  <div><h4 data-i18n="iframe.savedViews">Saved views</h4><small id="iframe-target-count">0 entries</small></div>
+                  <button class="browser-create" id="iframe-add" type="button"><svg class="ui-icon"><use href="#icon-plus"></use></svg><span data-i18n="iframe.add">Add</span></button>
+                </div>
+                <div class="iframe-target-list" id="iframe-target-list"></div>
+                <p class="iframe-manager-hint" data-i18n="iframe.browserHint">Use an address reachable by your browser. Docker-internal service names usually work only inside Docker.</p>
+              </div>
+            </div>
           </div>
         </article>
         <div class="settings-category">
@@ -369,28 +377,35 @@
           <span></span>
           <p data-i18n="settings.notificationsCategoryHint">External alerts and watchdog behavior.</p>
         </div>
-        <article class="panel notification-card">
-          <div class="notification-head">
+        <article class="panel notification-card settings-accordion" data-accordion="notification-settings-body">
+          <div class="notification-head settings-accordion-head">
             <span class="notification-icon">◉</span>
             <div><h3 data-i18n="notifications.title">Discord watchdog</h3><p data-i18n="notifications.description">Get pinged when the server needs attention.</p></div>
-            <label class="setting-switch"><input id="notifications-enabled" type="checkbox"><span><i></i></span><b data-i18n="notifications.enabled">Enabled</b></label>
+            <div class="settings-accordion-controls">
+              <label class="setting-switch"><input id="notifications-enabled" type="checkbox"><span><i></i></span><b data-i18n="notifications.enabled">Enabled</b></label>
+              <button class="settings-accordion-toggle" type="button" aria-expanded="false" aria-controls="notification-settings-body" data-i18n-title="settings.expandSection" title="Expand section"><svg class="ui-icon"><use href="#icon-chevron-down"></use></svg></button>
+            </div>
           </div>
-          <form id="notification-form" autocomplete="off">
-            <label class="notification-field webhook-field"><span data-i18n="notifications.webhook">Discord webhook URL</span><input id="notification-webhook" type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off"><small id="webhook-state"></small></label>
-            <label class="notification-field"><span data-i18n="notifications.mention">Mention / role ID</span><input id="notification-mention" placeholder="&lt;@&amp;ROLE_ID&gt; or @here"><small data-i18n="notifications.mentionHint">Use a Discord role/user ID for a real ping.</small></label>
-            <label class="notification-field"><span data-i18n="notifications.repeat">Repeat active alerts after</span><select id="notification-repeat"><option value="15">15 min</option><option value="30">30 min</option><option value="60">1 h</option><option value="180">3 h</option><option value="720">12 h</option><option value="1440">24 h</option></select></label>
-            <div class="notification-options">
-              <label class="setting-switch"><input id="notification-disks" type="checkbox"><span><i></i></span><b data-i18n="notifications.disks">Disk problems</b></label>
-              <label class="setting-switch"><input id="notification-containers" type="checkbox"><span><i></i></span><b data-i18n="notifications.containers">Container problems</b></label>
-              <label class="setting-switch"><input id="notification-system" type="checkbox"><span><i></i></span><b data-i18n="notifications.system">System problems</b></label>
+          <div class="settings-accordion-body" id="notification-settings-body">
+            <div class="settings-accordion-inner">
+              <form id="notification-form" autocomplete="off">
+                <label class="notification-field webhook-field"><span data-i18n="notifications.webhook">Discord webhook URL</span><input id="notification-webhook" type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off"><small id="webhook-state"></small></label>
+                <label class="notification-field"><span data-i18n="notifications.mention">Mention / role ID</span><input id="notification-mention" placeholder="&lt;@&amp;ROLE_ID&gt; or @here"><small data-i18n="notifications.mentionHint">Use a Discord role/user ID for a real ping.</small></label>
+                <label class="notification-field"><span data-i18n="notifications.repeat">Repeat active alerts after</span><select id="notification-repeat"><option value="15">15 min</option><option value="30">30 min</option><option value="60">1 h</option><option value="180">3 h</option><option value="720">12 h</option><option value="1440">24 h</option></select></label>
+                <div class="notification-options">
+                  <label class="setting-switch"><input id="notification-disks" type="checkbox"><span><i></i></span><b data-i18n="notifications.disks">Disk problems</b></label>
+                  <label class="setting-switch"><input id="notification-containers" type="checkbox"><span><i></i></span><b data-i18n="notifications.containers">Container problems</b></label>
+                  <label class="setting-switch"><input id="notification-system" type="checkbox"><span><i></i></span><b data-i18n="notifications.system">System problems</b></label>
+                </div>
+                <small id="notification-status" role="status"></small>
+                <div class="notification-actions">
+                  <button id="notification-remove" class="action danger" type="button" data-i18n="notifications.remove">Remove webhook</button>
+                  <button id="notification-test" class="action" type="button" data-i18n="notifications.test">Save & test</button>
+                  <button class="settings-primary notification-save" type="submit" data-i18n="notifications.save">Save notifications</button>
+                </div>
+              </form>
             </div>
-            <small id="notification-status" role="status"></small>
-            <div class="notification-actions">
-              <button id="notification-remove" class="action danger" type="button" data-i18n="notifications.remove">Remove webhook</button>
-              <button id="notification-test" class="action" type="button" data-i18n="notifications.test">Save & test</button>
-              <button class="settings-primary notification-save" type="submit" data-i18n="notifications.save">Save notifications</button>
-            </div>
-          </form>
+          </div>
         </article>
       </div>
     </section>
@@ -465,9 +480,9 @@
   </dialog>
 
   <div id="toast" role="status"></div>
-  <script src="/i18n.js?v=1.14.0"></script>
-  <script src="/vendor/xterm.js?v=1.14.0"></script>
-  <script src="/vendor/addon-fit.js?v=1.14.0"></script>
-  <script src="/app.js?v=1.14.0"></script>
+  <script src="/i18n.js?v=1.15.0"></script>
+  <script src="/vendor/xterm.js?v=1.15.0"></script>
+  <script src="/vendor/addon-fit.js?v=1.15.0"></script>
+  <script src="/app.js?v=1.15.0"></script>
 </body>
 </html>
