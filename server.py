@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import base64
 import concurrent.futures
+import datetime
 import fcntl
 import hashlib
 import hmac
@@ -32,10 +33,14 @@ ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
 # Deliberately image-owned: old Compose files must not be able to override the UI version.
-VERSION = "1.12.5"
+VERSION = "1.13.0"
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 CONFIG_FILE = Path(os.getenv("CONFIG_FILE", "/data/config.json"))
+SERVICES_CONFIG_FILE = Path(os.getenv(
+    "SERVICES_CONFIG_FILE",
+    str(CONFIG_FILE.with_name("services.json")),
+))
 LEGACY_ACCOUNT_FILE = Path(os.getenv("ACCOUNT_FILE", "/data/account.json"))
 LEGACY_NOTIFICATION_FILE = Path(os.getenv("NOTIFICATION_FILE", "/data/notifications.json"))
 ALLOW_ACTIONS = os.getenv("ALLOW_DOCKER_ACTIONS", "true").lower() == "true"
@@ -59,6 +64,7 @@ _notification_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 _notification_pending = False
 _notification_state = {}
 _notification_runtime = {"lastSent": None, "lastError": ""}
+_vpn_geo_cache = {}
 
 NOTIFICATION_DEFAULTS = {
     "enabled": False,
@@ -214,6 +220,29 @@ def load_notification_settings():
     return normalized_notification_settings(None)
 
 
+def save_monitoring_settings(settings):
+    with _config_lock:
+        SERVICES_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temporary = SERVICES_CONFIG_FILE.with_suffix(f"{SERVICES_CONFIG_FILE.suffix}.tmp")
+        temporary.write_text(json.dumps(settings, indent=2) + "\n")
+        os.chmod(temporary, 0o600)
+        temporary.replace(SERVICES_CONFIG_FILE)
+
+
+def load_monitoring_settings():
+    try:
+        stored = json.loads(SERVICES_CONFIG_FILE.read_text())
+    except (OSError, ValueError, json.JSONDecodeError):
+        stored = {}
+    if not isinstance(stored, dict):
+        stored = {}
+    return {
+        "enabled": stored.get("enabled") is True,
+        "instances": stored.get("instances") if isinstance(stored.get("instances"), list) else [],
+        "gluetun": stored.get("gluetun") if isinstance(stored.get("gluetun"), dict) else {},
+    }
+
+
 def account_configured():
     return _account is not None
 
@@ -232,6 +261,7 @@ def verify_account(username, password):
 
 _account = load_account()
 _notification_settings = load_notification_settings()
+_monitoring_settings = load_monitoring_settings()
 
 
 def version_tuple(value):
@@ -693,6 +723,274 @@ def docker_networks_info():
             "labels": item.get("Labels") or {},
         })
     return sorted(result, key=lambda item: (not item["builtin"], item["name"].lower()))
+
+
+def integration_url(value):
+    value = str(value or "").strip().rstrip("/")
+    parsed = urlparse(value)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Integration URL must be a valid http:// or https:// address without credentials.")
+    return value
+
+
+def integration_json(base_url, path, headers=None, timeout=6):
+    request = urllib.request.Request(
+        f"{integration_url(base_url)}{path}",
+        headers={"Accept": "application/json", "User-Agent": f"ubuntu-dashboard/{VERSION}", **(headers or {})},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read(4 * 1024 * 1024))
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"HTTP {exc.code}") from exc
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError(str(exc)) from exc
+
+
+def service_headers(instance):
+    auth_type = str(instance.get("authType", "apikey" if instance.get("apiKey") else "none"))
+    if auth_type == "apikey" and instance.get("apiKey"):
+        return {str(instance.get("headerName", "X-Api-Key")): str(instance["apiKey"])}
+    if auth_type == "bearer" and instance.get("apiKey"):
+        return {"Authorization": f"Bearer {instance['apiKey']}"}
+    if auth_type == "basic" and instance.get("username"):
+        token = base64.b64encode(f"{instance['username']}:{instance.get('password', '')}".encode()).decode()
+        return {"Authorization": f"Basic {token}"}
+    return {}
+
+
+def integration_probe(base_url, path="", headers=None, timeout=6):
+    suffix = str(path or "").strip()
+    if suffix and not suffix.startswith("/"):
+        suffix = f"/{suffix}"
+    request = urllib.request.Request(
+        f"{integration_url(base_url)}{suffix}",
+        headers={"User-Agent": f"ubuntu-dashboard/{VERSION}", **(headers or {})},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            response.read(1024)
+            return int(response.status)
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"HTTP {exc.code}") from exc
+    except OSError as exc:
+        raise RuntimeError(str(exc)) from exc
+
+
+def arr_instance_data(instance, start, end):
+    instance_id = str(instance.get("id", ""))
+    kind = str(instance.get("type", "")).lower()
+    name = str(instance.get("name", kind.title() or "ARR"))
+    base_url = integration_url(instance.get("url"))
+    api_key = str(instance.get("apiKey", ""))
+    if kind not in ("sonarr", "radarr") or not api_key:
+        raise ValueError("Sonarr/Radarr type, URL and API key are required.")
+    headers = {"X-Api-Key": api_key}
+    status = integration_json(base_url, "/api/v3/system/status", headers)
+    params = urlencode({"start": start, "end": end, "unmonitored": "true"})
+    calendar = integration_json(base_url, f"/api/v3/calendar?{params}", headers)
+    events = []
+    for item in calendar if isinstance(calendar, list) else []:
+        if kind == "sonarr":
+            series = item.get("series") or {}
+            date_value = item.get("airDateUtc") or item.get("airDate")
+            episode = f"S{int(item.get('seasonNumber', 0)):02}E{int(item.get('episodeNumber', 0)):02}"
+            media_title = str(series.get("title") or item.get("seriesTitle") or name)
+            title = f"{media_title} · {episode} · {item.get('title', 'Episode')}"
+        else:
+            movie = item.get("movie") or item
+            date_value = item.get("digitalRelease") or item.get("physicalRelease") or item.get("inCinemas")
+            media_title = str(movie.get("title") or item.get("title") or name)
+            title = media_title
+        if not date_value:
+            continue
+        events.append({
+            "id": f"{instance_id}:{item.get('id', len(events))}",
+            "instanceId": instance_id,
+            "instance": name,
+            "type": kind,
+            "color": str(instance.get("color", "#3b82f6")),
+            "date": str(date_value),
+            "title": title,
+            "mediaTitle": media_title,
+            "monitored": bool(item.get("monitored", True)),
+            "hasFile": bool(item.get("hasFile", False)),
+        })
+    return {
+        "id": instance_id,
+        "name": name,
+        "type": kind,
+        "url": base_url,
+        "color": str(instance.get("color", "#3b82f6")),
+        "online": True,
+        "version": str(status.get("version", "")) if isinstance(status, dict) else "",
+        "events": events,
+    }
+
+
+def service_instance_data(instance, start, end, containers):
+    kind = str(instance.get("type", "custom")).lower()
+    if kind in ("sonarr", "radarr"):
+        result = arr_instance_data(instance, start, end)
+    else:
+        base_url = integration_url(instance.get("url"))
+        result = {
+            "id": str(instance.get("id", "")),
+            "name": str(instance.get("name", kind.title())),
+            "type": kind,
+            "url": base_url,
+            "color": str(instance.get("color", "#3b82f6")),
+            "online": True,
+            "version": "",
+            "events": [],
+            "httpStatus": integration_probe(
+                base_url,
+                instance.get("statusPath", ""),
+                service_headers(instance),
+            ),
+        }
+    container_name = str(instance.get("containerName", "")).strip().lower()
+    if container_name:
+        result["container"] = next(
+            (item for item in containers if item.get("name", "").lower() == container_name),
+            None,
+        )
+    return result
+
+
+def gluetun_headers(settings):
+    auth_type = str(settings.get("authType", "none"))
+    if auth_type == "apikey" and settings.get("apiKey"):
+        return {"X-API-Key": str(settings["apiKey"])}
+    if auth_type == "basic" and settings.get("username"):
+        token = base64.b64encode(f"{settings['username']}:{settings.get('password', '')}".encode()).decode()
+        return {"Authorization": f"Basic {token}"}
+    return {}
+
+
+def vpn_geolocation(address):
+    cached_value = _vpn_geo_cache.get(address)
+    if cached_value and time.time() - cached_value[0] < 21600:
+        return cached_value[1]
+    try:
+        data = integration_json("https://ipwho.is", f"/{quote(address, safe=':')}", timeout=4)
+        value = {
+            "country": str(data.get("country", "")),
+            "countryCode": str(data.get("country_code", "")),
+            "city": str(data.get("city", "")),
+            "flag": str((data.get("flag") or {}).get("emoji", "")),
+            "isp": str((data.get("connection") or {}).get("isp", "")),
+        } if isinstance(data, dict) and data.get("success", True) else {}
+    except Exception:
+        value = {}
+    _vpn_geo_cache[address] = (time.time(), value)
+    return value
+
+
+def gluetun_data(settings, containers):
+    if not settings.get("enabled"):
+        return {"configured": False}
+    base_url = integration_url(settings.get("url"))
+    headers = gluetun_headers(settings)
+    vpn_status = integration_json(base_url, "/v1/vpn/status", headers)
+    public_ip = integration_json(base_url, "/v1/publicip/ip", headers)
+    address = str(public_ip.get("public_ip", "")) if isinstance(public_ip, dict) else ""
+    container_name = str(settings.get("containerName", "gluetun")).lower()
+    container = next((item for item in containers if item.get("name", "").lower() == container_name), None)
+    return {
+        "configured": True,
+        "online": True,
+        "url": base_url,
+        "status": str(vpn_status.get("status", "unknown")) if isinstance(vpn_status, dict) else "unknown",
+        "publicIp": address,
+        "location": vpn_geolocation(address) if address else {},
+        "container": container,
+    }
+
+
+def monitoring_info(start, end):
+    start_date = datetime.date.fromisoformat(start)
+    end_date = datetime.date.fromisoformat(end)
+    if end_date < start_date or (end_date - start_date).days > 93:
+        raise ValueError("Calendar range must contain 1–93 days.")
+    settings = load_monitoring_settings()
+    if not settings["enabled"]:
+        return {
+            "enabled": False,
+            "instances": [],
+            "events": [],
+            "vpn": {"configured": False},
+            "docker": {"available": False, "containers": []},
+        }
+    docker = docker_info()
+    containers = docker.get("containers", []) if docker.get("available") else []
+    instances = []
+    configured = [item for item in settings["instances"] if isinstance(item, dict) and item.get("enabled", True)]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, max(1, len(configured)))) as executor:
+        futures = {
+            executor.submit(service_instance_data, item, start, end, containers): item
+            for item in configured
+        }
+        for future, item in futures.items():
+            try:
+                instances.append(future.result())
+            except Exception as exc:
+                instances.append({
+                    "id": str(item.get("id", "")),
+                    "name": str(item.get("name", item.get("type", "ARR").title())),
+                    "type": str(item.get("type", "")),
+                    "url": str(item.get("url", "")),
+                    "color": str(item.get("color", "#3b82f6")),
+                    "online": False,
+                    "error": str(exc),
+                    "events": [],
+                })
+    try:
+        vpn = gluetun_data(settings["gluetun"], containers)
+    except Exception as exc:
+        vpn = {"configured": True, "online": False, "error": str(exc)}
+    return {
+        "enabled": True,
+        "instances": instances,
+        "events": [event for item in instances for event in item.get("events", [])],
+        "vpn": vpn,
+        "docker": {
+            "available": bool(docker.get("available")),
+            "error": docker.get("error", ""),
+            "containers": containers,
+        },
+    }
+
+
+def public_monitoring_config():
+    settings = load_monitoring_settings()
+    return {
+        "enabled": settings["enabled"],
+        "instances": [{
+            "id": str(item.get("id", "")),
+            "type": str(item.get("type", "")),
+            "name": str(item.get("name", "")),
+            "url": str(item.get("url", "")),
+            "color": str(item.get("color", "#3b82f6")),
+            "enabled": bool(item.get("enabled", True)),
+            "apiKeyConfigured": bool(item.get("apiKey")),
+            "authType": str(item.get("authType", "apikey" if item.get("apiKey") else "none")),
+            "headerName": str(item.get("headerName", "X-Api-Key")),
+            "username": str(item.get("username", "")),
+            "passwordConfigured": bool(item.get("password")),
+            "statusPath": str(item.get("statusPath", "")),
+            "containerName": str(item.get("containerName", "")),
+        } for item in settings["instances"] if isinstance(item, dict)],
+        "gluetun": {
+            "enabled": bool(settings["gluetun"].get("enabled")),
+            "url": str(settings["gluetun"].get("url", "")),
+            "containerName": str(settings["gluetun"].get("containerName", "gluetun")),
+            "authType": str(settings["gluetun"].get("authType", "none")),
+            "apiKeyConfigured": bool(settings["gluetun"].get("apiKey")),
+            "username": str(settings["gluetun"].get("username", "")),
+            "passwordConfigured": bool(settings["gluetun"].get("password")),
+        },
+    }
 
 
 def parse_image_reference(reference):
@@ -1968,6 +2266,18 @@ class Handler(BaseHTTPRequestHandler):
                 "repeatMinutes": settings["repeatMinutes"],
                 **runtime,
             })
+        elif path == "/api/monitoring/config":
+            self.send_json(public_monitoring_config())
+        elif path == "/api/monitoring":
+            query = parse_qs(urlparse(self.path).query)
+            today = datetime.date.today()
+            try:
+                self.send_json(monitoring_info(
+                    query.get("start", [today.isoformat()])[0],
+                    query.get("end", [(today + datetime.timedelta(days=42)).isoformat()])[0],
+                ))
+            except (ValueError, OSError) as exc:
+                self.send_json({"error": str(exc)}, 400)
         elif path == "/api/processes":
             self.send_json({"processes": process_info()})
         elif path == "/api/logs":
@@ -2023,6 +2333,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/notifications/test":
             self.handle_notification_test()
+            return
+        if path == "/api/monitoring/config":
+            self.handle_monitoring_update()
+            return
+        if path == "/api/monitoring/enabled":
+            self.handle_monitoring_enabled()
             return
         if path == "/api/networks/create":
             self.handle_network_create()
@@ -2225,6 +2541,123 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": True})
         except Exception as exc:
             self.send_json({"error": f"Discord test failed: {exc}"}, 502)
+
+    def handle_monitoring_update(self):
+        global _monitoring_settings
+        try:
+            length = min(int(self.headers.get("Content-Length", "0")), 65536)
+            payload = json.loads(self.rfile.read(length) or b"{}")
+            incoming = payload.get("instances", [])
+            if not isinstance(incoming, list) or len(incoming) > 16:
+                raise ValueError("Configure at most 16 Sonarr/Radarr instances.")
+            existing = {
+                str(item.get("id")): item
+                for item in load_monitoring_settings()["instances"]
+                if isinstance(item, dict)
+            }
+            instances = []
+            used_ids = set()
+            for raw in incoming:
+                if not isinstance(raw, dict):
+                    raise ValueError("Invalid ARR instance.")
+                instance_id = str(raw.get("id", "")).strip()
+                if not re.fullmatch(r"[A-Za-z0-9_-]{6,64}", instance_id) or instance_id in used_ids:
+                    instance_id = secrets.token_urlsafe(9)
+                used_ids.add(instance_id)
+                kind = str(raw.get("type", "")).lower()
+                name = str(raw.get("name", "")).strip()[:48]
+                color = str(raw.get("color", "")).lower()
+                if not re.fullmatch(r"[a-z0-9_-]{2,40}", kind):
+                    raise ValueError("Invalid integration type.")
+                if not name:
+                    raise ValueError("Every integration needs a name.")
+                if not re.fullmatch(r"#[0-9a-f]{6}", color):
+                    raise ValueError(f"Invalid color for {name}.")
+                url = integration_url(raw.get("url"))
+                api_key = str(raw.get("apiKey", "")).strip()
+                if not api_key:
+                    api_key = str(existing.get(instance_id, {}).get("apiKey", ""))
+                password = str(raw.get("password", ""))
+                if not password:
+                    password = str(existing.get(instance_id, {}).get("password", ""))
+                auth_type = str(raw.get("authType", "apikey" if kind in ("sonarr", "radarr") else "none"))
+                if kind in ("sonarr", "radarr"):
+                    auth_type = "apikey"
+                if auth_type not in ("none", "apikey", "bearer", "basic"):
+                    raise ValueError(f"Invalid authentication type for {name}.")
+                username = str(raw.get("username", "")).strip()[:256]
+                if auth_type in ("apikey", "bearer") and not api_key:
+                    raise ValueError(f"An API key or token is required for {name}.")
+                if auth_type == "basic" and (not username or not password):
+                    raise ValueError(f"Username and password are required for {name}.")
+                if len(api_key) > 512 or len(password) > 512:
+                    raise ValueError(f"Credentials for {name} are too long.")
+                status_path = str(raw.get("statusPath", "")).strip()[:512]
+                if status_path and not status_path.startswith("/"):
+                    status_path = f"/{status_path}"
+                header_name = str(raw.get("headerName", "X-Api-Key")).strip()[:128]
+                if not re.fullmatch(r"[A-Za-z0-9-]{1,128}", header_name):
+                    raise ValueError(f"Invalid API header name for {name}.")
+                instances.append({
+                    "id": instance_id,
+                    "type": kind,
+                    "name": name,
+                    "url": url,
+                    "apiKey": api_key,
+                    "color": color,
+                    "enabled": bool(raw.get("enabled", True)),
+                    "authType": auth_type,
+                    "headerName": "X-Api-Key" if kind in ("sonarr", "radarr") else header_name,
+                    "username": username,
+                    "password": password,
+                    "statusPath": status_path,
+                    "containerName": str(raw.get("containerName", "")).strip()[:128],
+                })
+            previous_gluetun = load_monitoring_settings()["gluetun"]
+            raw_vpn = payload.get("gluetun", {})
+            if not isinstance(raw_vpn, dict):
+                raise ValueError("Invalid Gluetun configuration.")
+            vpn_enabled = bool(raw_vpn.get("enabled"))
+            vpn = {"enabled": vpn_enabled}
+            if vpn_enabled:
+                auth_type = str(raw_vpn.get("authType", "none"))
+                if auth_type not in ("none", "apikey", "basic"):
+                    raise ValueError("Invalid Gluetun authentication type.")
+                vpn.update({
+                    "url": integration_url(raw_vpn.get("url")),
+                    "containerName": str(raw_vpn.get("containerName", "gluetun")).strip()[:128] or "gluetun",
+                    "authType": auth_type,
+                    "username": str(raw_vpn.get("username", "")).strip()[:256],
+                    "apiKey": str(raw_vpn.get("apiKey", "")).strip() or str(previous_gluetun.get("apiKey", "")),
+                    "password": str(raw_vpn.get("password", "")) or str(previous_gluetun.get("password", "")),
+                })
+                if auth_type == "apikey" and not vpn["apiKey"]:
+                    raise ValueError("Gluetun API key is required.")
+                if auth_type == "basic" and (not vpn["username"] or not vpn["password"]):
+                    raise ValueError("Gluetun username and password are required.")
+            updated = {
+                "enabled": bool(payload.get("enabled", load_monitoring_settings()["enabled"])),
+                "instances": instances,
+                "gluetun": vpn,
+            }
+            save_monitoring_settings(updated)
+            _monitoring_settings = updated
+            self.send_json({"ok": True, **public_monitoring_config()})
+        except (ValueError, TypeError, OSError, json.JSONDecodeError) as exc:
+            self.send_json({"error": str(exc)}, 400)
+
+    def handle_monitoring_enabled(self):
+        global _monitoring_settings
+        try:
+            length = min(int(self.headers.get("Content-Length", "0")), 4096)
+            payload = json.loads(self.rfile.read(length) or b"{}")
+            settings = load_monitoring_settings()
+            settings["enabled"] = bool(payload.get("enabled"))
+            save_monitoring_settings(settings)
+            _monitoring_settings = settings
+            self.send_json({"ok": True, **public_monitoring_config()})
+        except (OSError, json.JSONDecodeError) as exc:
+            self.send_json({"error": str(exc)}, 400)
 
     def handle_network_create(self):
         if not ALLOW_ACTIONS:

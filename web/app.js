@@ -22,6 +22,9 @@ let networkHistory = {down: [], up: []};
 let metricHistory = {cpu: [], memory: []};
 let notificationState = null;
 let networkDeleteTarget = null;
+let servicesConfig = null;
+let servicesData = null;
+let servicesMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
 function t(key) {
   return window.I18N?.[currentLanguage]?.[key] ?? window.I18N?.en?.[key] ?? key;
@@ -42,6 +45,11 @@ function applyLanguage(language) {
   if (overview) render(overview);
   if (currentPage === "shares") loadShares(selectedShare, selectedPath, $("#file-search").value.trim());
   if (currentPage === "networks") loadNetworks();
+  if (currentPage === "services") {
+    renderServices();
+    renderServicesCalendar();
+  }
+  if (servicesConfig) applyServicesAvailability(servicesConfig);
   renderDiscordStrip();
   if (sessionInfo) {
     loadVersionCheck();
@@ -100,7 +108,8 @@ const toast = (message, error = false) => {
 };
 
 function setPage(name) {
-  if (!["overview", "docker", "networks", "storage", "shares", "processes", "logs", "cli", "settings"].includes(name)) name = "overview";
+  if (!["overview", "docker", "networks", "storage", "shares", "services", "processes", "logs", "cli", "settings"].includes(name)) name = "overview";
+  if (name === "services" && !servicesConfig?.enabled) name = "overview";
   currentPage = name;
   if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
   $$(".page").forEach(page => page.classList.toggle("active", page.id === `page-${name}`));
@@ -111,6 +120,7 @@ function setPage(name) {
   if (name === "logs") loadLogs();
   if (name === "networks") loadNetworks();
   if (name === "shares") loadShares(selectedShare, selectedPath, $("#file-search").value.trim());
+  if (name === "services") loadServices();
   if (name === "settings") loadAccountSettings();
   if (name === "cli") {
     requestAnimationFrame(() => {
@@ -1177,6 +1187,372 @@ $("#logout").addEventListener("click", async () => {
   location.replace("/login.html");
 });
 
+const SERVICE_PRESETS = [
+  "sonarr", "radarr", "lidarr", "readarr", "prowlarr", "bazarr", "jellyseerr",
+  "overseerr", "ombi", "seerr", "jellyfin", "emby", "plex", "tautulli",
+  "audiobookshelf", "navidrome", "immich", "kavita", "komga", "calibre-web",
+  "qbittorrent", "sabnzbd", "nzbget", "transmission", "deluge", "slskd", "aria2",
+  "jdownloader", "pyload", "adguard-home", "pihole", "technitium-dns", "home-assistant",
+  "homebridge", "uptime-kuma", "grafana", "prometheus", "netdata", "glances", "beszel",
+  "gatus", "healthchecks", "speedtest-tracker", "proxmox", "truenas", "unraid",
+  "openmediavault", "synology", "opnsense", "pfsense", "unifi-controller", "mikrotik",
+  "portainer", "coolify", "traefik", "caddy", "nginx-proxy-manager", "cloudflared",
+  "tailscale", "wg-easy", "crowdsec", "nextcloud", "paperless-ngx", "gitea", "gitlab",
+  "authentik", "vaultwarden", "gotify", "ntfy", "frigate", "tdarr", "fileflows",
+  "mealie", "freshrss", "miniflux", "filebrowser", "syncthing", "watchtower",
+  "scrutiny", "photoprism", "octoprint", "minecraft", "vikunja", "umami", "custom"
+];
+const SERVICE_COLORS = ["#3b82f6", "#e954a8", "#ef4444", "#8b5cf6", "#06b6d4", "#22c55e", "#f59e0b"];
+
+const localDateKey = date => {
+  const value = new Date(date);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+};
+const dateFromKey = key => {
+  const [year, month, day] = key.split("-").map(Number);
+  return new Date(year, month - 1, day);
+};
+const serviceLabel = type => type.split(/[-_]/).map(word => word ? word[0].toUpperCase() + word.slice(1) : "").join(" ");
+
+function applyServicesAvailability(config) {
+  servicesConfig = config;
+  $$(".services-nav").forEach(item => item.hidden = !config?.enabled);
+  $("#services-enabled").checked = Boolean(config?.enabled);
+  $("#services-enabled-label").textContent = t(config?.enabled ? "common.enabled" : "common.disabled");
+  if (!config?.enabled && currentPage === "services") setPage("settings");
+}
+
+async function loadServicesConfig() {
+  const response = await fetch("/api/monitoring/config", {cache: "no-store"});
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || t("services.configFailed"));
+  applyServicesAvailability(data);
+  return data;
+}
+
+function calendarRange() {
+  const first = new Date(servicesMonth.getFullYear(), servicesMonth.getMonth(), 1);
+  const start = new Date(first);
+  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  const end = new Date(start);
+  end.setDate(end.getDate() + 42);
+  return {start, end};
+}
+
+async function loadServices() {
+  if (!servicesConfig?.enabled) return;
+  const {start, end} = calendarRange();
+  $("#calendar-grid").innerHTML = `<div class="calendar-loading">${escapeHtml(t("services.loading"))}</div>`;
+  try {
+    const params = new URLSearchParams({start: localDateKey(start), end: localDateKey(end)});
+    const response = await fetch(`/api/monitoring?${params}`, {cache: "no-store"});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || t("services.loadFailed"));
+    servicesData = data;
+    renderServices();
+    renderServicesCalendar();
+  } catch (error) {
+    $("#service-cards").innerHTML = `<div class="panel services-empty">${escapeHtml(error.message)}</div>`;
+    $("#calendar-grid").innerHTML = `<div class="calendar-loading">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function renderServices() {
+  if (!servicesData) return;
+  const cards = [...(servicesData.instances || [])];
+  const vpn = servicesData.vpn || {};
+  if (vpn.configured) {
+    cards.push({
+      id: "gluetun", name: "Gluetun VPN", type: "gluetun", color: "#22c55e",
+      online: vpn.online && vpn.status === "running", version: vpn.status,
+      container: vpn.container, vpn
+    });
+  }
+  $("#service-cards").innerHTML = cards.length ? cards.map(item => {
+    const container = item.container;
+    const containerState = container?.health || container?.state || t("services.notLinked");
+    const secondary = item.type === "gluetun"
+      ? `${item.vpn?.location?.flag || ""} ${item.vpn?.location?.country || t("services.locationUnknown")}`.trim()
+      : item.version || (item.httpStatus ? `HTTP ${item.httpStatus}` : containerState);
+    const detail = item.type === "gluetun"
+      ? item.vpn?.publicIp || "–"
+      : `${(item.events || []).length} ${t("services.events")}`;
+    return `<article class="service-card" style="--service-color:${escapeHtml(item.color || "#3b82f6")}">
+      <div class="service-card-head">
+        <span class="service-app-icon">${escapeHtml((item.type || "?").slice(0, 2))}</span>
+        <div><h3>${escapeHtml(item.name)}</h3><small>${escapeHtml(serviceLabel(item.type || "custom"))}</small></div>
+        <span class="service-state ${item.online ? "" : "offline"}">${escapeHtml(t(item.online ? "services.online" : "services.offline"))}</span>
+      </div>
+      <div class="service-card-stats">
+        <div><small>${escapeHtml(item.type === "gluetun" ? t("services.publicIp") : t("services.status"))}</small><strong>${escapeHtml(item.type === "gluetun" ? detail : secondary)}</strong></div>
+        <div><small>${escapeHtml(item.type === "gluetun" ? t("services.location") : t("services.container"))}</small><strong>${escapeHtml(item.type === "gluetun" ? secondary : container?.name || t("services.notLinked"))}</strong></div>
+      </div>
+    </article>`;
+  }).join("") : `<div class="panel services-empty">${escapeHtml(t("services.noIntegrations"))}</div>`;
+
+  const containers = servicesData.docker?.containers || [];
+  const running = containers.filter(item => item.state === "running").length;
+  $("#service-docker-summary").textContent = servicesData.docker?.available
+    ? `${running} / ${containers.length} ${t("services.running")}`
+    : t("services.dockerUnavailable");
+  $("#service-docker-grid").innerHTML = containers.length ? containers.map(item => {
+    const stateClass = item.health === "unhealthy" || ["exited", "dead"].includes(item.state)
+      ? "offline" : ["starting", "restarting", "paused"].includes(item.health) || ["restarting", "paused"].includes(item.state) ? "warning" : "";
+    return `<div class="docker-service">
+      <span class="docker-service-icon">${svgIcon("docker")}</span>
+      <div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.image)} · ${escapeHtml(item.status || item.state)}</small></div>
+      <i class="docker-service-state ${stateClass}" title="${escapeHtml(item.health || item.state)}"></i>
+    </div>`;
+  }).join("") : `<div class="services-empty">${escapeHtml(t("services.noContainers"))}</div>`;
+}
+
+function renderServicesCalendar() {
+  const monthTitle = servicesMonth.toLocaleDateString(currentLanguage, {month: "long", year: "numeric"});
+  $("#calendar-month").textContent = monthTitle;
+  const weekdayBase = new Date(2024, 0, 1);
+  $("#calendar-weekdays").innerHTML = Array.from({length: 7}, (_, index) => {
+    const day = new Date(weekdayBase);
+    day.setDate(day.getDate() + index);
+    return `<span>${escapeHtml(day.toLocaleDateString(currentLanguage, {weekday: "short"}))}</span>`;
+  }).join("");
+  const instances = (servicesData?.instances || []).filter(item => ["sonarr", "radarr"].includes(item.type));
+  $("#calendar-legend").innerHTML = instances.map(item =>
+    `<span style="--event-color:${escapeHtml(item.color)}"><i></i>${escapeHtml(item.name)}</span>`
+  ).join("");
+  const grouped = {};
+  (servicesData?.events || []).forEach(event => {
+    const key = localDateKey(event.date);
+    (grouped[key] ||= []).push(event);
+  });
+  const {start} = calendarRange();
+  const today = localDateKey(new Date());
+  $("#calendar-grid").innerHTML = Array.from({length: 42}, (_, index) => {
+    const date = new Date(start);
+    date.setDate(date.getDate() + index);
+    const key = localDateKey(date);
+    const events = grouped[key] || [];
+    const outside = date.getMonth() !== servicesMonth.getMonth();
+    const visible = events.slice(0, 3).map(event =>
+      `<button class="calendar-event" type="button" data-event-id="${escapeHtml(event.id)}" style="--event-color:${escapeHtml(event.color)}">${escapeHtml(event.title)}</button>`
+    ).join("");
+    return `<div class="calendar-day ${outside ? "outside" : ""} ${key === today ? "today" : ""}" data-date="${key}">
+      <span class="calendar-day-number">${date.getDate()}</span>
+      <div class="calendar-events">${visible}${events.length > 3 ? `<span class="calendar-more">+${events.length - 3}</span>` : ""}</div>
+    </div>`;
+  }).join("");
+  $$(".calendar-event").forEach(button => button.addEventListener("click", event => {
+    event.stopPropagation();
+    openCalendarEvent(button.dataset.eventId);
+  }));
+  $$(".calendar-day").forEach(day => day.addEventListener("click", () => {
+    const first = (grouped[day.dataset.date] || [])[0];
+    if (first) openCalendarEvent(first.id);
+  }));
+}
+
+function openCalendarEvent(eventId) {
+  const item = (servicesData?.events || []).find(event => event.id === eventId);
+  if (!item) return;
+  const date = new Date(item.date);
+  $("#calendar-event-content").innerHTML = `
+    <div class="calendar-event-visual" style="--event-color:${escapeHtml(item.color)}" data-mark="${escapeHtml(item.type)}">
+      <div><small>${escapeHtml(item.instance)}</small><h3>${escapeHtml(item.title)}</h3></div>
+    </div>
+    <div class="calendar-event-details">
+      <dl>
+        <div><dt>${escapeHtml(t("services.release"))}</dt><dd>${escapeHtml(date.toLocaleString(currentLanguage, {dateStyle: "medium", timeStyle: "short"}))}</dd></div>
+        <div><dt>${escapeHtml(t("services.source"))}</dt><dd>${escapeHtml(serviceLabel(item.type))}</dd></div>
+        <div><dt>${escapeHtml(t("services.fileStatus"))}</dt><dd>${escapeHtml(t(item.hasFile ? "services.available" : "services.upcoming"))}</dd></div>
+      </dl>
+      <div class="dialog-actions"><button class="dialog-primary" id="calendar-event-close" type="button">${escapeHtml(t("common.close"))}</button></div>
+    </div>`;
+  $("#calendar-event-dialog").showModal();
+  $("#calendar-event-close").addEventListener("click", () => $("#calendar-event-dialog").close());
+}
+
+function integrationRow(item = {}) {
+  const id = item.id || `new_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  const type = item.type || "custom";
+  const auth = item.authType || (["sonarr", "radarr"].includes(type) ? "apikey" : "none");
+  const configured = item.apiKeyConfigured ? t("services.secretConfigured") : "";
+  const passwordConfigured = item.passwordConfigured ? t("services.secretConfigured") : "";
+  const typeOptions = SERVICE_PRESETS.map(value =>
+    `<option value="${value}" ${value === type ? "selected" : ""}>${escapeHtml(serviceLabel(value))}</option>`
+  ).join("");
+  return `<div class="arr-instance-row" data-id="${escapeHtml(id)}">
+    <label><span>${escapeHtml(t("services.type"))}</span><select class="instance-type">${typeOptions}</select></label>
+    <label><span>${escapeHtml(t("services.name"))}</span><input class="instance-name" value="${escapeHtml(item.name || serviceLabel(type))}" required maxlength="48"></label>
+    <label><span>URL</span><input class="instance-url" type="url" value="${escapeHtml(item.url || "")}" placeholder="http://${escapeHtml(type)}:8080" required></label>
+    <label><span>${escapeHtml(t("services.color"))}</span><input class="instance-color" type="color" value="${escapeHtml(item.color || SERVICE_COLORS[Math.floor(Math.random() * SERVICE_COLORS.length)])}"></label>
+    <button class="action instance-remove" type="button" title="${escapeHtml(t("common.deleteShort"))}">×</button>
+    <div class="instance-advanced">
+      <label><span>${escapeHtml(t("services.containerName"))}</span><input class="instance-container" value="${escapeHtml(item.containerName || "")}" placeholder="${escapeHtml(type)}"></label>
+      <label><span>${escapeHtml(t("services.statusPath"))}</span><input class="instance-path" value="${escapeHtml(item.statusPath || "")}" placeholder="/api/status"></label>
+      <label><span>${escapeHtml(t("services.authentication"))}</span><select class="instance-auth"><option value="none" ${auth === "none" ? "selected" : ""}>${escapeHtml(t("services.authNone"))}</option><option value="apikey" ${auth === "apikey" ? "selected" : ""}>API key header</option><option value="bearer" ${auth === "bearer" ? "selected" : ""}>Bearer token</option><option value="basic" ${auth === "basic" ? "selected" : ""}>Basic auth</option></select></label>
+      <label><span>${escapeHtml(t("services.headerName"))}</span><input class="instance-header" value="${escapeHtml(item.headerName || "X-Api-Key")}"></label>
+      <label><span>API key / token</span><input class="instance-key" type="password" placeholder="${escapeHtml(configured)}" autocomplete="new-password"></label>
+      <label><span>${escapeHtml(t("services.username"))}</span><input class="instance-username" value="${escapeHtml(item.username || "")}" autocomplete="off"></label>
+      <label><span>${escapeHtml(t("services.password"))}</span><input class="instance-password" type="password" placeholder="${escapeHtml(passwordConfigured)}" autocomplete="new-password"></label>
+      <label class="setting-switch"><input class="instance-enabled" type="checkbox" ${item.enabled !== false ? "checked" : ""}><span><i></i></span><b>${escapeHtml(t("common.enabled"))}</b></label>
+    </div>
+  </div>`;
+}
+
+function bindIntegrationRows() {
+  $$(".instance-remove:not([data-bound])").forEach(button => {
+    button.dataset.bound = "true";
+    button.addEventListener("click", () => button.closest(".arr-instance-row")?.remove());
+  });
+  $$(".instance-type:not([data-bound])").forEach(select => {
+    select.dataset.bound = "true";
+    select.addEventListener("change", () => {
+    const row = select.closest(".arr-instance-row");
+    if (!row.querySelector(".instance-name").value.trim()) row.querySelector(".instance-name").value = serviceLabel(select.value);
+    if (["sonarr", "radarr"].includes(select.value)) {
+      row.querySelector(".instance-auth").value = "apikey";
+      row.querySelector(".instance-header").value = "X-Api-Key";
+      row.querySelector(".instance-path").value = "";
+    }
+    });
+  });
+}
+
+function renderServicesEditor() {
+  $("#arr-instance-list").innerHTML = (servicesConfig?.instances || []).map(integrationRow).join("")
+    || `<div class="services-empty">${escapeHtml(t("services.editorEmpty"))}</div>`;
+  bindIntegrationRows();
+  const vpn = servicesConfig?.gluetun || {};
+  $("#gluetun-enabled").checked = Boolean(vpn.enabled);
+  $("#gluetun-url").value = vpn.url || "";
+  $("#gluetun-container").value = vpn.containerName || "gluetun";
+  $("#gluetun-auth").value = vpn.authType || "none";
+  $("#gluetun-api-key").value = "";
+  $("#gluetun-api-key").placeholder = vpn.apiKeyConfigured ? t("services.secretConfigured") : "";
+  $("#gluetun-username").value = vpn.username || "";
+  $("#gluetun-password").value = "";
+  $("#gluetun-password").placeholder = vpn.passwordConfigured ? t("services.secretConfigured") : "";
+  updateGluetunFields();
+}
+
+function updateGluetunFields() {
+  const auth = $("#gluetun-auth").value;
+  $$(".gluetun-api-field").forEach(field => field.hidden = auth !== "apikey");
+  $$(".gluetun-basic-field").forEach(field => field.hidden = auth !== "basic");
+}
+
+async function openServicesEditor() {
+  try {
+    await loadServicesConfig();
+    renderServicesEditor();
+    $("#services-dialog-error").textContent = "";
+    $("#services-dialog").showModal();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+$("#service-preset").innerHTML = SERVICE_PRESETS.map(value => `<option value="${value}">${escapeHtml(serviceLabel(value))}</option>`).join("");
+$("#services-configure").addEventListener("click", openServicesEditor);
+$("#add-service").addEventListener("click", () => {
+  const empty = $("#arr-instance-list .services-empty");
+  if (empty) empty.remove();
+  const type = $("#service-preset").value;
+  $("#arr-instance-list").insertAdjacentHTML("beforeend", integrationRow({
+    type, name: serviceLabel(type), color: SERVICE_COLORS[$$(".arr-instance-row").length % SERVICE_COLORS.length],
+    authType: ["sonarr", "radarr"].includes(type) ? "apikey" : "none"
+  }));
+  bindIntegrationRows();
+});
+$("#gluetun-auth").addEventListener("change", updateGluetunFields);
+$("#calendar-previous").addEventListener("click", () => {
+  servicesMonth = new Date(servicesMonth.getFullYear(), servicesMonth.getMonth() - 1, 1);
+  loadServices();
+});
+$("#calendar-next").addEventListener("click", () => {
+  servicesMonth = new Date(servicesMonth.getFullYear(), servicesMonth.getMonth() + 1, 1);
+  loadServices();
+});
+$("#calendar-today").addEventListener("click", () => {
+  const now = new Date();
+  servicesMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  loadServices();
+});
+$("#calendar-event-dialog").addEventListener("click", event => {
+  if (event.target === event.currentTarget) event.currentTarget.close();
+});
+
+$("#services-enabled").addEventListener("change", async event => {
+  const enabled = event.currentTarget.checked;
+  event.currentTarget.disabled = true;
+  try {
+    const response = await fetch("/api/monitoring/enabled", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken},
+      body: JSON.stringify({enabled})
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || t("services.configFailed"));
+    applyServicesAvailability(data);
+    toast(t(enabled ? "services.activated" : "services.deactivated"));
+  } catch (error) {
+    event.currentTarget.checked = !enabled;
+    toast(error.message, true);
+  } finally {
+    event.currentTarget.disabled = false;
+  }
+});
+
+$("#services-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector(".dialog-primary");
+  button.disabled = true;
+  $("#services-dialog-error").textContent = "";
+  try {
+    const instances = $$(".arr-instance-row").map(row => ({
+      id: row.dataset.id,
+      type: row.querySelector(".instance-type").value,
+      name: row.querySelector(".instance-name").value.trim(),
+      url: row.querySelector(".instance-url").value.trim(),
+      color: row.querySelector(".instance-color").value,
+      enabled: row.querySelector(".instance-enabled").checked,
+      containerName: row.querySelector(".instance-container").value.trim(),
+      statusPath: row.querySelector(".instance-path").value.trim(),
+      authType: row.querySelector(".instance-auth").value,
+      headerName: row.querySelector(".instance-header").value.trim(),
+      apiKey: row.querySelector(".instance-key").value,
+      username: row.querySelector(".instance-username").value.trim(),
+      password: row.querySelector(".instance-password").value
+    }));
+    const response = await fetch("/api/monitoring/config", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken},
+      body: JSON.stringify({
+        enabled: servicesConfig?.enabled,
+        instances,
+        gluetun: {
+          enabled: $("#gluetun-enabled").checked,
+          url: $("#gluetun-url").value.trim(),
+          containerName: $("#gluetun-container").value.trim(),
+          authType: $("#gluetun-auth").value,
+          apiKey: $("#gluetun-api-key").value,
+          username: $("#gluetun-username").value.trim(),
+          password: $("#gluetun-password").value
+        }
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || t("services.configFailed"));
+    applyServicesAvailability(data);
+    $("#services-dialog").close();
+    toast(t("services.saved"));
+    await loadServices();
+  } catch (error) {
+    $("#services-dialog-error").textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) loadOverview();
   else scheduleLiveUpdate(5000);
@@ -1197,6 +1573,11 @@ async function bootstrap() {
     $("#account-username").value = sessionInfo.username || "";
     $("#ssh-host").value = `${sessionInfo.sshHost}:${sessionInfo.sshPort}`;
     applyLanguage(currentLanguage);
+    try {
+      await loadServicesConfig();
+    } catch {
+      applyServicesAvailability({enabled: false, instances: [], gluetun: {}});
+    }
     setPage(location.hash.slice(1) || "overview");
     loadOverview();
     loadNotificationStatus();
