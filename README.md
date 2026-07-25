@@ -8,7 +8,9 @@
 A responsive, Unraid-inspired control center for Linux servers. Ubuntu Dashboard
 runs as a single Docker container and provides live host monitoring, Docker
 management, storage health, a writable data browser, an SSH terminal and
-configurable Discord alerts.
+configurable Discord alerts. An optional iFrame workspace can bring existing
+Homarr, Homepage and other browser-accessible Docker web interfaces into the
+same dashboard.
 
 Despite its name, it is not limited to Ubuntu. The dashboard detects the host
 distribution and adapts its branding for Ubuntu, Debian, Fedora/RHEL-based
@@ -28,6 +30,25 @@ arrays are supported as one storage type, but Unraid is not required.
 
 All screenshots use generated demonstration data. They contain no production
 host names, addresses, account names, paths or other user information.
+
+## New: Multi-view iFrame workspace
+
+The optional iFrame tab can now hold multiple named web interfaces instead of
+just one address. Add separate entries for tools such as Homepage, Homarr,
+SABnzbd or other container WebUIs, then switch the visible interface from the
+compact dropdown above the embedded page.
+
+- Disabled by default and activated from **Settings → Embedded dashboards**
+- Multiple named URL and port combinations with add, edit and remove actions
+- Fast switching between saved views without changing the dashboard setup
+- Compact, collapsible Settings card that does not crowd the page
+- Independent persistence in `iframe.json`, next to the main `config.json`
+- Automatic migration of existing single-URL iFrame configurations
+
+The configured address must be reachable by the user's browser. The embedded
+application must also permit framing; applications that send restrictive
+`X-Frame-Options` or `Content-Security-Policy: frame-ancestors` headers can
+still refuse to load inside any dashboard.
 
 ## Highlights
 
@@ -49,7 +70,8 @@ host names, addresses, account names, paths or other user information.
 - File owner, group, symbolic permissions and octal mode display
 - Create, edit and delete folders and UTF-8 text/YAML/configuration files
 - Instant file and folder name search in the current Data Browser directory
-- Optional iFrame tab for embedding Homarr, Homepage or another Docker web UI
+- Optional multi-view iFrame tab with named entries, dropdown selection and
+  separate persistent configuration
 - Interactive host terminal backed by a real SSH session
 - Host process and classic log-file views
 - Drag-and-drop overview layout with browser-local persistence
