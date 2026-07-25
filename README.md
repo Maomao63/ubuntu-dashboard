@@ -173,6 +173,8 @@ services:
         source: /proc/1/net/route
         target: /host-proc-net-route
         read_only: true
+      - /dev:/host/dev:ro
+      - /run/udev:/host/run/udev:ro
       - /sys:/host/sys:ro
       - /var/run/docker.sock:/var/run/docker.sock
       # Persistent config.json and optional iframe.json.
