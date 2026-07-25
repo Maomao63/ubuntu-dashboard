@@ -31,6 +31,10 @@ arrays are supported as one storage type, but Unraid is not required.
 All screenshots use generated demonstration data. They contain no production
 host names, addresses, account names, paths or other user information.
 
+## New: Hierarchical Storage & ZFS Support
+
+The storage dashboard now natively supports hierarchical display for ZFS pools, Unraid arrays, Linux md-RAID, LVM, and Btrfs. Disks are automatically grouped into their respective VDEVs or roles (such as `mirror`, `raidz`, `parity`, `data`, and `cache`), providing a clear and enterprise-ready overview of your storage arrays.
+
 ## New: Multi-view iFrame workspace
 
 The optional iFrame tab can now hold multiple named web interfaces instead of
@@ -171,7 +175,9 @@ services:
         read_only: true
       - /sys:/host/sys:ro
       - /var/run/docker.sock:/var/run/docker.sock
-      # Persistent dashboard configuration. May be an absolute host path.
+      # Persistent config.json and optional iframe.json.
+      # Set DASHBOARD_CONFIG_PATH to any host directory, for example
+      # /opt/ubuntu-dashboard/config. Relative paths are resolved next to compose.yml.
       - "${DASHBOARD_CONFIG_PATH:-./config}:/data"
     read_only: true
     tmpfs:
