@@ -1008,7 +1008,12 @@ def unraid_disk_telemetry():
         except (TypeError, ValueError):
             temperature = None
         raw_status = item.get("status") or item.get("color") or item.get("state") or "running"
-        disk_type = "ssd" if item.get("rotational") == "0" or device.startswith("nvme") else "hdd"
+        if device.startswith("nvme"):
+            disk_type = "nvme"
+        elif item.get("rotational") == "0":
+            disk_type = "ssd"
+        else:
+            disk_type = "hdd"
         result.append({
             "name": name,
             "device": device,
@@ -1229,7 +1234,8 @@ def zfs_storage(disks):
             continue
         device = Path(node).name
         base = base_disk_name(device)
-        disk = disk_map.get(base, {"name": device, "device": device, "size": 0, "health": "healthy", "state": "running", "temperature": None})
+        fallback_type = "nvme" if device.startswith("nvme") else "ssd" if not device.startswith("sd") else "hdd"
+        disk = disk_map.get(base, {"name": device, "device": device, "size": 0, "health": "healthy", "state": "running", "temperature": None, "type": fallback_type})
         member = member_from_disk(disk, "data", current_vdev)
         topology_status = normalize_disk_state(state)
         member["status"] = topology_status if topology_status != "healthy" else disk.get("health", "healthy")
@@ -1810,7 +1816,7 @@ def log_info():
     # Try journalctl first for comprehensive system logs (journald-only modern systems)
     journalctl_output = host_command(
         ["journalctl", "-n", "300", "--no-pager", "--output=short-iso",
-         "--priority=0..7"],  # all priorities
+         "--priority=debug"],  # debug = all priorities 0..7
         timeout=8,
     )
     if journalctl_output.strip():

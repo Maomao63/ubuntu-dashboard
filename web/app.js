@@ -398,7 +398,15 @@ function render(data) {
   $("#storage-preview").onclick = event => {
     if (event.target.closest("[data-jump]")) setPage("storage");
   };
-  const tempClass = (t) => t === null ? "" : t >= 60 ? "temp-critical" : t >= 50 ? "temp-hot" : t >= 40 ? "temp-warm" : t < 20 ? "temp-cold" : "";
+  const tempClass = (temp, diskType) => {
+    if (temp === null || temp === undefined) return "";
+    const type = (diskType || "hdd").toLowerCase();
+    let warn, crit;
+    if (type === "nvme") { warn = 75; crit = 85; }
+    else if (type === "ssd") { warn = 65; crit = 75; }
+    else { warn = 50; crit = 60; }
+    return temp >= crit ? "temp-critical" : temp >= warn ? "temp-hot" : temp >= 40 ? "temp-warm" : temp < 20 ? "temp-cold" : "";
+  };
   const diskTypeBadge = (disk) => {
     const dev = (disk.device || "").toLowerCase();
     const type = (disk.type || "").toLowerCase();
@@ -410,7 +418,7 @@ function render(data) {
     ? system.disks.map(disk => `<div class="temp-row">
         <i class="disk-health ${disk.health}" title="${escapeHtml(t(`health.${disk.health}`))}"></i>
         <span><b>${escapeHtml(disk.name)}${diskTypeBadge(disk)}</b><small>/dev/${escapeHtml(disk.device)} · ${escapeHtml(disk.model || "–")} · ${escapeHtml(t(`disk.${disk.state}`))} · ${escapeHtml(t(`health.${disk.health}`))}</small></span>
-        <strong class="${tempClass(disk.temperature)}">${disk.temperature === null ? "–" : `${disk.temperature} °C`}</strong>
+        <strong class="${tempClass(disk.temperature, disk.type)}">${disk.temperature === null ? "–" : `${disk.temperature} °C`}</strong>
       </div>`).join("")
     : `<span>${t("common.noDrives")}</span>`;
   $("#temperatures").classList.toggle("empty-state", !system.disks.length);
@@ -428,9 +436,10 @@ function render(data) {
     if (!raidType) return "";
     const lower = (raidType || "").toLowerCase();
     let cls = "stripe";
-    if (lower.includes("mirror")) cls = "mirror";
+    if (lower.includes("mirror") || lower === "raid-1 (mirror)") cls = "mirror";
     else if (lower.includes("raidz") || lower.includes("raid")) cls = "raidz";
     else if (lower.includes("draid")) cls = "draid";
+    else if (lower.includes("linear")) cls = "linear";
     return `<span class="raid-type-badge ${cls}">${escapeHtml(raidType)}</span>`;
   };
   const barClass = (pct) => pct >= 90 ? "crit" : pct >= 70 ? "warn" : "";
@@ -461,12 +470,14 @@ function render(data) {
         <div class="vdev-members">
           ${members.map(member => {
             const devLow = (member.device || "").toLowerCase();
-            const isNvme = devLow.startsWith("nvme");
+            const isNvme = devLow.startsWith("nvme") || member.type === "nvme";
             const diskTypeCls = isNvme ? "nvme" : (member.type === "ssd" ? "ssd" : "hdd");
             const diskTypeLabel = isNvme ? "NVMe" : (member.type === "ssd" ? "SSD" : "HDD");
+            const warnT = isNvme ? 75 : (member.type === "ssd" ? 65 : 50);
+            const critT = isNvme ? 85 : (member.type === "ssd" ? 75 : 60);
             const tempCls = member.temperature == null ? "" :
-              member.temperature >= 60 ? "temp-critical" :
-              member.temperature >= 50 ? "temp-hot" :
+              member.temperature >= critT ? "temp-critical" :
+              member.temperature >= warnT ? "temp-hot" :
               member.temperature >= 40 ? "temp-warm" : "";
             const sizeInfo = member.used !== undefined && member.role === "data"
               ? `${bytes(member.used)} / ${bytes(member.total || member.size)}`
@@ -509,7 +520,7 @@ function render(data) {
       </div>` : `
       <div class="storage-quick-stats">
         <div class="storage-stat-cell">
-          <b>${group.members.length}</b>
+          <b>${group.activeDrives != null ? `${group.activeDrives}/${group.totalDrives}` : group.members.length}</b>
           <small>Drives</small>
         </div>
         <div class="storage-stat-cell">
@@ -1269,7 +1280,7 @@ function renderLogOutput(lines, filter, search) {
       (!search || line.toLowerCase().includes(search.toLowerCase()));
     const escaped = escapeHtml(line);
     const lineClass = cls === "err" ? "log-line-err" : cls === "warn" ? "log-line-warn" :
-      cls === "kernel" ? "log-line-kernel" : "log-line-info";
+      cls === "kernel" ? "log-line-kernel" : cls === "storage" ? "log-line-storage" : "log-line-info";
     return `<span class="${lineClass}${visible ? "" : " log-line-hidden"}">${escaped}</span>`;
   }).join("\n");
   output.innerHTML = html || `<span class="log-line-info">No logs to display</span>`;
@@ -1278,7 +1289,7 @@ function renderLogOutput(lines, filter, search) {
     statsEl.innerHTML = `
       <span class="log-stat"><span class="log-stat-count err">${errCount}</span> errors</span>
       <span class="log-stat"><span class="log-stat-count warn">${warnCount}</span> warnings</span>
-      <span class="log-stat"><span class="log-stat-count">${storageCount}</span> storage events</span>
+      <span class="log-stat"><span class="log-stat-count storage">${storageCount}</span> storage events</span>
       <span class="log-stat"><span class="log-stat-count">${lines.length}</span> total lines</span>`;
   }
   /* Scroll to last visible line */

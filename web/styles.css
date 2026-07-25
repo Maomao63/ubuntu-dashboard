@@ -381,6 +381,7 @@ tbody tr:hover { background: #141920; }
 .raid-type-badge.raidz { background: #3c2a1a; color: #f28345; border-color: #573d26; }
 .raid-type-badge.stripe { background: #1d2730; color: #8a929e; border-color: #29333e; }
 .raid-type-badge.draid { background: #1a2a3c; color: #37bde8; border-color: #1f3a53; }
+.raid-type-badge.linear { background: #231d2e; color: #9b78ff; border-color: #342750; }
 
 /* Usage bar */
 .storage-usage-bar-wrap { margin-bottom: 12px; }
@@ -708,9 +709,11 @@ pre { margin: 0; padding: 20px; max-height: calc(100vh - 260px); overflow: auto;
 .log-stat-count { font-weight: 700; }
 .log-stat-count.err { color: var(--danger); }
 .log-stat-count.warn { color: #e8ad43; }
+.log-stat-count.storage { color: var(--green); }
 /* Log line coloring */
 .log-line-err { color: #ff6b6b !important; }
 .log-line-warn { color: #e8ad43 !important; }
+.log-line-storage { color: #43d17a !important; }
 .log-line-info { color: #aeb6c2; }
 .log-line-kernel { color: #4b9fff !important; }
 .log-line-hidden { display: none; }
@@ -745,6 +748,7 @@ pre { margin: 0; padding: 20px; max-height: calc(100vh - 260px); overflow: auto;
   :root { --sidebar: 220px; }
   .sidebar { transform: translateX(-100%); transition: .25s; box-shadow: 15px 0 45px #0009; }
   body.menu-open .sidebar { transform: none; }
+  .sidebar-collapse-btn { display: none; }
   main { margin-left: 0; padding: 0 16px 30px; }
   header { height: 86px; margin-bottom: 18px; }
   .mobile-menu { display: block; margin-right: 12px; }
