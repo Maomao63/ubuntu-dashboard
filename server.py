@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
 # Deliberately image-owned: old Compose files must not be able to override the UI version.
-VERSION = "1.13.2"
+VERSION = "1.14.0"
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 CONFIG_FILE = Path(os.getenv("CONFIG_FILE", "/data/config.json"))
@@ -226,10 +226,41 @@ def save_iframe_settings(settings):
 
 def normalized_iframe_settings(stored):
     stored = stored if isinstance(stored, dict) else {}
+    raw_targets = stored.get("targets")
+    if not isinstance(raw_targets, list):
+        raw_targets = []
+        if stored.get("url"):
+            raw_targets.append({
+                "id": "legacy",
+                "name": "Dashboard",
+                "url": stored.get("url", ""),
+                "port": stored.get("port", ""),
+            })
+    targets = []
+    used_ids = set()
+    for index, raw in enumerate(raw_targets[:24]):
+        if not isinstance(raw, dict):
+            continue
+        target_id = str(raw.get("id", "")).strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{3,64}", target_id) or target_id in used_ids:
+            target_id = f"target-{index + 1}"
+            while target_id in used_ids:
+                target_id += "-x"
+        used_ids.add(target_id)
+        name = str(raw.get("name", "")).strip()[:48] or f"Dashboard {index + 1}"
+        targets.append({
+            "id": target_id,
+            "name": name,
+            "url": str(raw.get("url", "")).strip(),
+            "port": raw.get("port", ""),
+        })
+    selected_id = str(stored.get("selectedId", "")).strip()
+    if targets and selected_id not in used_ids:
+        selected_id = targets[0]["id"]
     return {
         "enabled": stored.get("enabled") is True,
-        "url": str(stored.get("url", "")),
-        "port": stored.get("port", ""),
+        "targets": targets,
+        "selectedId": selected_id,
     }
 
 
@@ -265,13 +296,26 @@ def iframe_source(settings):
 
 def public_iframe_settings():
     settings = load_iframe_settings()
-    try:
-        source = iframe_source(settings)
-        error = ""
-    except (ValueError, TypeError) as exc:
-        source = ""
-        error = str(exc)
-    return {**settings, "src": source, "error": error}
+    targets = []
+    for target in settings["targets"]:
+        try:
+            source = iframe_source(target)
+            error = ""
+        except (ValueError, TypeError) as exc:
+            source = ""
+            error = str(exc)
+        targets.append({**target, "src": source, "error": error})
+    selected = next(
+        (target for target in targets if target["id"] == settings["selectedId"]),
+        targets[0] if targets else None,
+    )
+    return {
+        "enabled": settings["enabled"],
+        "targets": targets,
+        "selectedId": selected["id"] if selected else "",
+        "src": selected["src"] if selected else "",
+        "error": selected["error"] if selected else "",
+    }
 
 
 def account_configured():
@@ -2300,17 +2344,47 @@ class Handler(BaseHTTPRequestHandler):
 
     def handle_iframe_update(self):
         try:
-            length = min(int(self.headers.get("Content-Length", "0")), 8192)
+            length = min(int(self.headers.get("Content-Length", "0")), 65536)
             payload = json.loads(self.rfile.read(length) or b"{}")
             current = load_iframe_settings()
+            targets = current["targets"]
+            if "targets" in payload:
+                incoming = payload["targets"]
+                if not isinstance(incoming, list) or len(incoming) > 24:
+                    raise ValueError("Configure at most 24 iFrame targets.")
+                targets = []
+                used_ids = set()
+                for raw in incoming:
+                    if not isinstance(raw, dict):
+                        raise ValueError("Invalid iFrame target.")
+                    target_id = str(raw.get("id", "")).strip()
+                    if not re.fullmatch(r"[A-Za-z0-9_-]{3,64}", target_id) or target_id in used_ids:
+                        target_id = secrets.token_urlsafe(8)
+                    used_ids.add(target_id)
+                    name = str(raw.get("name", "")).strip()[:48]
+                    if not name:
+                        raise ValueError("Every iFrame target needs a name.")
+                    port = raw.get("port", "")
+                    if port not in ("", None):
+                        port = int(port)
+                    target = {
+                        "id": target_id,
+                        "name": name,
+                        "url": str(raw.get("url", "")).strip(),
+                        "port": port,
+                    }
+                    if not iframe_source(target):
+                        raise ValueError(f"URL is required for {name}.")
+                    targets.append(target)
+            selected_id = str(payload.get("selectedId", current["selectedId"])).strip()
+            valid_ids = {target["id"] for target in targets}
+            if selected_id not in valid_ids:
+                selected_id = targets[0]["id"] if targets else ""
             updated = {
                 "enabled": bool(payload.get("enabled", current["enabled"])),
-                "url": str(payload.get("url", current["url"])).strip(),
-                "port": payload.get("port", current["port"]),
+                "targets": targets,
+                "selectedId": selected_id,
             }
-            if updated["port"] not in ("", None):
-                updated["port"] = int(updated["port"])
-            iframe_source(updated)
             save_iframe_settings(updated)
             self.send_json({"ok": True, **public_iframe_settings()})
         except (ValueError, TypeError, OSError, json.JSONDecodeError) as exc:

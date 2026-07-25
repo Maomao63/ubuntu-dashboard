@@ -1204,11 +1204,34 @@ function renderIframe() {
   }
 }
 
+function renderIframeTargets() {
+  const targets = iframeConfig?.targets || [];
+  const select = $("#iframe-target-select");
+  select.innerHTML = targets.length
+    ? targets.map(target => `<option value="${escapeHtml(target.id)}" ${target.id === iframeConfig.selectedId ? "selected" : ""}>${escapeHtml(target.name)}</option>`).join("")
+    : `<option value="">${escapeHtml(t("iframe.noViews"))}</option>`;
+  select.disabled = !targets.length;
+  $("#iframe-target-count").textContent = `${targets.length} ${t(targets.length === 1 ? "iframe.entry" : "iframe.entries")}`;
+  $("#iframe-target-list").innerHTML = targets.length ? targets.map((target, index) => `
+    <div class="iframe-target-row ${target.id === iframeConfig.selectedId ? "active" : ""}">
+      <span class="iframe-target-index">${String(index + 1).padStart(2, "0")}</span>
+      <strong>${escapeHtml(target.name)}</strong>
+      <small title="${escapeHtml(target.src || target.url)}">${escapeHtml(target.src || target.url)}</small>
+      <div class="iframe-target-row-actions">
+        <button class="action" type="button" data-iframe-edit="${escapeHtml(target.id)}" title="${escapeHtml(t("common.edit"))}">${svgIcon("edit")}</button>
+        <button class="action danger" type="button" data-iframe-delete="${escapeHtml(target.id)}" title="${escapeHtml(t("common.deleteShort"))}">${svgIcon("trash")}</button>
+      </div>
+    </div>`).join("") : `<div class="iframe-manager-empty">${escapeHtml(t("iframe.managerEmpty"))}</div>`;
+  $$("[data-iframe-edit]").forEach(button => button.addEventListener("click", () => openIframeDialog(button.dataset.iframeEdit)));
+  $$("[data-iframe-delete]").forEach(button => button.addEventListener("click", () => deleteIframeTarget(button.dataset.iframeDelete)));
+}
+
 function applyIframeAvailability(config) {
-  iframeConfig = config || {enabled: false, url: "", port: "", src: ""};
+  iframeConfig = config || {enabled: false, targets: [], selectedId: "", src: ""};
   $$(".iframe-nav").forEach(item => item.hidden = !iframeConfig.enabled);
   $("#iframe-enabled").setAttribute("aria-checked", String(Boolean(iframeConfig.enabled)));
   $("#iframe-enabled-label").textContent = t(iframeConfig.enabled ? "common.enabled" : "common.disabled");
+  renderIframeTargets();
   renderIframe();
   if (!iframeConfig.enabled && currentPage === "iframe") setPage("overview");
 }
@@ -1221,16 +1244,58 @@ async function loadIframeConfig() {
   return data;
 }
 
-function openIframeDialog() {
-  $("#iframe-url").value = iframeConfig?.url || "";
-  $("#iframe-port").value = iframeConfig?.port || "";
+function openIframeDialog(targetId = "") {
+  const target = (iframeConfig?.targets || []).find(item => item.id === targetId);
+  $("#iframe-form").dataset.targetId = target?.id || "";
+  $("#iframe-dialog-title").textContent = t(target ? "iframe.editTitle" : "iframe.addTitle");
+  $("#iframe-name").value = target?.name || "";
+  $("#iframe-url").value = target?.url || "";
+  $("#iframe-port").value = target?.port || "";
   $("#iframe-dialog-error").textContent = "";
   $("#iframe-dialog").showModal();
-  $("#iframe-url").focus();
+  $("#iframe-name").focus();
 }
 
-$("#iframe-configure").addEventListener("click", openIframeDialog);
-$("#iframe-empty-configure").addEventListener("click", openIframeDialog);
+async function saveIframeTargets(targets, selectedId) {
+  const response = await fetch("/api/iframe", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken},
+    body: JSON.stringify({targets, selectedId})
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || t("iframe.saveFailed"));
+  applyIframeAvailability(data);
+  return data;
+}
+
+async function deleteIframeTarget(targetId) {
+  const target = (iframeConfig?.targets || []).find(item => item.id === targetId);
+  if (!target || !window.confirm(`${t("iframe.deleteConfirm")} ${target.name}?`)) return;
+  try {
+    await saveIframeTargets(iframeConfig.targets.filter(item => item.id !== targetId), iframeConfig.selectedId);
+    toast(t("iframe.deleted"));
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+$("#iframe-add").addEventListener("click", () => openIframeDialog());
+$("#iframe-empty-settings").addEventListener("click", () => {
+  setPage("settings");
+  requestAnimationFrame(() => $(".iframe-toggle-card").scrollIntoView({behavior: "smooth", block: "start"}));
+});
+$("#iframe-target-select").addEventListener("change", async event => {
+  const select = event.currentTarget;
+  select.disabled = true;
+  try {
+    await saveIframeTargets(iframeConfig.targets, select.value);
+  } catch (error) {
+    toast(error.message, true);
+    renderIframeTargets();
+  } finally {
+    select.disabled = false;
+  }
+});
 $("#iframe-refresh").addEventListener("click", () => {
   const frame = $("#embedded-app");
   if (!iframeConfig?.src) return;
@@ -1265,22 +1330,23 @@ $("#iframe-enabled").addEventListener("click", async event => {
 
 $("#iframe-form").addEventListener("submit", async event => {
   event.preventDefault();
+  const form = event.currentTarget;
   const button = event.currentTarget.querySelector(".dialog-primary");
   button.disabled = true;
   $("#iframe-dialog-error").textContent = "";
   try {
-    const response = await fetch("/api/iframe", {
-      method: "POST",
-      headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken},
-      body: JSON.stringify({
-        enabled: iframeConfig?.enabled,
-        url: $("#iframe-url").value.trim(),
-        port: $("#iframe-port").value
-      })
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || t("iframe.saveFailed"));
-    applyIframeAvailability(data);
+    const targetId = form.dataset.targetId || `target_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const updatedTarget = {
+      id: targetId,
+      name: $("#iframe-name").value.trim(),
+      url: $("#iframe-url").value.trim(),
+      port: $("#iframe-port").value
+    };
+    const existing = (iframeConfig?.targets || []).some(target => target.id === targetId);
+    const targets = existing
+      ? iframeConfig.targets.map(target => target.id === targetId ? updatedTarget : target)
+      : [...(iframeConfig?.targets || []), updatedTarget];
+    await saveIframeTargets(targets, existing ? iframeConfig.selectedId : targetId);
     $("#iframe-dialog").close();
     toast(t("iframe.saved"));
   } catch (error) {
@@ -1313,7 +1379,7 @@ async function bootstrap() {
     try {
       await loadIframeConfig();
     } catch {
-      applyIframeAvailability({enabled: false, url: "", port: "", src: ""});
+      applyIframeAvailability({enabled: false, targets: [], selectedId: "", src: ""});
     }
     setPage(location.hash.slice(1) || "overview");
     loadOverview();

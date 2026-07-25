@@ -1,6 +1,6 @@
 # Ubuntu Dashboard
 
-![Version](https://img.shields.io/badge/version-1.13.2-f05a28)
+![Version](https://img.shields.io/badge/version-1.14.0-f05a28)
 ![Image](https://img.shields.io/badge/image-ghcr.io%2Fmaomao63%2Fubuntu--dashboard-blue)
 ![Platforms](https://img.shields.io/badge/platform-linux%2Famd64%20%7C%20linux%2Farm64-2ea44f)
 [![Publish Docker image](https://github.com/Maomao63/ubuntu-dashboard/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Maomao63/ubuntu-dashboard/actions/workflows/docker-publish.yml)
@@ -188,7 +188,7 @@ writable by the container.
 | File | Contents |
 | --- | --- |
 | `config.json` | Account, Discord webhook and notification preferences |
-| `iframe.json` | iFrame enable state, URL and optional port |
+| `iframe.json` | iFrame enable state, named web-interface views and current selection |
 
 The Discord webhook token and password hash are sensitive. Do not commit the
 configuration directory to Git, and include it in protected server backups.
@@ -198,25 +198,29 @@ browser's local storage.
 ## Optional iFrame tab
 
 The iFrame tab is disabled by default. Enable it under
-**Settings → iFrame tab**. Disabling the switch immediately removes the
-navigation entry, unloads the embedded page and redirects an open iFrame tab
-back to the overview.
+**Settings → Embedded dashboards → iFrame tab**. The same settings card lets
+you add, edit or remove multiple named views for Homarr, Homepage or any other
+browser-accessible Docker web interface. Disabling the switch immediately
+removes the navigation entry, unloads the embedded page and redirects an open
+iFrame tab back to the overview.
 
-After activation, open **iFrame → Configure iFrame** and enter the address your
-browser uses for Homarr, Homepage or another Docker web interface:
+Choose **Add**, give the view a name and enter the address your browser uses:
 
 ```text
+Name: Homepage
 URL:  http://192.168.1.20
 Port: 7575
 ```
 
-The resulting address is stored in `iframe.json` and embedded directly in the
-dashboard. Use a browser-accessible host address; a Compose service name such
-as `homarr` normally resolves only inside Docker. When the dashboard itself is
-served over HTTPS, the embedded page should also use HTTPS to avoid browser
-mixed-content blocking. The target application or reverse proxy must permit
-embedding and must not send a conflicting `X-Frame-Options` or
-`frame-ancestors` policy.
+The saved views and the current selection are stored in `iframe.json`. On the
+iFrame tab, use the compact dropdown above the embedded page to switch between
+them. Existing single-URL configurations are migrated automatically into a
+named `Dashboard` view. Use a browser-accessible host address; a Compose
+service name such as `homarr` normally resolves only inside Docker. When the
+dashboard itself is served over HTTPS, the embedded page should also use HTTPS
+to avoid browser mixed-content blocking. The target application or reverse
+proxy must permit embedding and must not send a conflicting `X-Frame-Options`
+or `frame-ancestors` policy.
 
 ### Migrating from the former named volume
 
