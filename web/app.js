@@ -399,12 +399,26 @@ function render(data) {
       </div>
       <div class="big-bar"><i style="width:${Math.min(group.percent, 100)}%"></i></div>
       <div class="storage-stats"><span>${bytes(group.used)} ${t("storage.used")}</span><span>${bytes(group.available)} ${t("common.free")} · ${bytes(group.total)} ${t("storage.total")}</span></div>
-      <div class="storage-member-list">${group.members.map(member => `
-        <div class="storage-member">
-          <i class="disk-health ${member.status}"></i>
-          <div><b>${escapeHtml(member.name)}</b><small>${escapeHtml(member.vdev || member.role)} · /dev/${escapeHtml(member.device)}</small></div>
-          <span>${member.temperature === null ? "" : `${member.temperature} °C · `}${member.used !== undefined && member.role === "data" ? `${bytes(member.used)} / ${bytes(member.total || member.size)}` : bytes(member.size)}</span>
-        </div>`).join("")}
+      <div class="storage-member-list">
+        ${Object.entries(group.members.reduce((acc, m) => {
+          const key = m.vdev || m.role || "disk";
+          (acc[key] = acc[key] || []).push(m);
+          return acc;
+        }, {})).map(([vdev, members]) => `
+          <div class="vdev-group">
+            <div class="vdev-group-header">
+              <span class="vdev-badge ${escapeHtml(vdev.toLowerCase().split('-')[0])}">${escapeHtml(vdev.toUpperCase())}</span>
+            </div>
+            <div class="vdev-members">
+              ${members.map(member => `
+              <div class="storage-member">
+                <i class="disk-health ${member.status}"></i>
+                <div><b>${escapeHtml(member.name)}</b><small>/dev/${escapeHtml(member.device)}</small></div>
+                <span>${member.temperature === null ? "" : `${member.temperature} °C · `}${member.used !== undefined && member.role === "data" ? `${bytes(member.used)} / ${bytes(member.total || member.size)}` : bytes(member.size)}</span>
+              </div>`).join("")}
+            </div>
+          </div>
+        `).join("")}
       </div>
     </article>`).join("") : `<div class="error-box">${t("common.noDrives")}</div>`;
   renderContainers(docker);

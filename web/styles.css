@@ -295,6 +295,15 @@ tbody tr:hover { background: #141920; }
 .big-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--orange), #f28345); }
 .storage-stats { display: flex; justify-content: space-between; color: var(--muted); font-size: 9px; margin-top: 10px; }
 .storage-member-list { margin-top: 18px; border-top: 1px solid #2a3038; }
+.vdev-group { margin-top: 10px; }
+.vdev-group-header { padding: 4px 0 8px 0; font-size: 10px; letter-spacing: 0.05em; }
+.vdev-badge { display: inline-block; padding: 3px 7px; border-radius: 4px; background: #272d35; color: #b9c0c9; font-weight: 600; border: 1px solid #363d47; }
+.vdev-badge.mirror { background: #182d42; color: #4b9fff; border-color: #244161; }
+.vdev-badge.raidz1, .vdev-badge.raidz2, .vdev-badge.raidz3, .vdev-badge.raid1, .vdev-badge.raid5, .vdev-badge.raid6 { background: #3c2a1a; color: #f28345; border-color: #573d26; }
+.vdev-badge.parity { background: #2f1d24; color: #f06a6a; border-color: #4a2d38; }
+.vdev-badge.data { background: #1a2e26; color: #43d17a; border-color: #27473a; }
+.vdev-badge.cache, .vdev-badge.log { background: #351a3f; color: #bf73db; border-color: #4d265a; }
+.vdev-members { margin-left: 6px; padding-left: 14px; border-left: 2px solid #2a3038; }
 .storage-member { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 11px 0; }
 .storage-member + .storage-member { border-top: 1px dashed #272d35; }
 .storage-member b, .storage-member small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
