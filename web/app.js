@@ -22,6 +22,7 @@ let networkHistory = {down: [], up: []};
 let metricHistory = {cpu: [], memory: []};
 let notificationState = null;
 let networkDeleteTarget = null;
+const expandedNetworks = new Set();
 let iframeConfig = null;
 
 function t(key) {
@@ -521,6 +522,10 @@ async function loadNetworks() {
     const data = await response.json();
     if (!response.ok || !data.available) throw new Error(data.error || t("networks.unavailable"));
     const networks = data.networks || [];
+    const networkIds = new Set(networks.map(item => item.id));
+    expandedNetworks.forEach(id => {
+      if (!networkIds.has(id)) expandedNetworks.delete(id);
+    });
     const custom = networks.filter(item => !item.builtin).length;
     const attached = networks.reduce((sum, item) => sum + item.containers, 0);
     $("#network-summary").innerHTML = `
@@ -528,36 +533,66 @@ async function loadNetworks() {
       <span><strong>${custom}</strong>${escapeHtml(t("networks.custom"))}</span>
       <span><strong>${attached}</strong>${escapeHtml(t("networks.attachments"))}</span>`;
     list.classList.remove("loading");
-    list.innerHTML = networks.length ? networks.map(item => {
+    list.innerHTML = networks.length ? networks.map((item, index) => {
       const subnet = item.subnets.join(", ") || t("networks.noSubnet");
       const gateway = item.gateways.join(", ") || "–";
       const composeProject = item.labels["com.docker.compose.project"];
       const kind = item.builtin ? t("networks.system") : composeProject ? `Compose · ${composeProject}` : t("networks.customNetwork");
       const connectedNames = (item.containerNames || []).join(", ");
-      return `<article class="panel network-card ${item.builtin ? "builtin" : ""}">
-        <div class="network-card-head">
+      const expanded = expandedNetworks.has(item.id);
+      const bodyId = `network-card-body-${index}`;
+      return `<article class="panel network-card ${item.builtin ? "builtin" : ""} ${expanded ? "expanded" : ""}" data-network-id="${escapeHtml(item.id)}">
+        <div class="network-card-head" data-network-head>
           <span class="network-card-icon">${svgIcon("network")}</span>
           <div><h3>${escapeHtml(item.name)}</h3><p>${escapeHtml(kind)}</p></div>
-          <span class="network-driver">${escapeHtml(item.driver)}</span>
+          <div class="network-card-controls">
+            <span class="network-driver">${escapeHtml(item.driver)}</span>
+            <button class="settings-accordion-toggle network-card-toggle" type="button" aria-expanded="${expanded}" aria-controls="${bodyId}" title="${escapeHtml(t(expanded ? "networks.collapse" : "networks.expand"))}">
+              ${svgIcon("chevron-down")}
+            </button>
+          </div>
         </div>
-        <div class="network-card-details">
-          <div><small>${escapeHtml(t("networks.subnetLabel"))}</small><strong>${escapeHtml(subnet)}</strong></div>
-          <div><small>${escapeHtml(t("networks.gatewayLabel"))}</small><strong>${escapeHtml(gateway)}</strong></div>
-          <div><small>${escapeHtml(t("networks.scope"))}</small><strong>${escapeHtml(item.scope)}</strong></div>
-          <div><small>${escapeHtml(t("networks.connected"))}</small><strong title="${escapeHtml(connectedNames)}">${item.containers}</strong></div>
-        </div>
-        <div class="network-card-foot">
-          <span class="network-flags">
-            ${item.internal ? `<i>${escapeHtml(t("networks.internal"))}</i>` : ""}
-            ${item.attachable ? `<i>${escapeHtml(t("networks.attachableShort"))}</i>` : ""}
-            ${item.builtin ? `<i>${escapeHtml(t("networks.protected"))}</i>` : ""}
-          </span>
-          <button class="network-delete action danger" data-network-delete="${escapeHtml(item.id)}" data-network-name="${escapeHtml(item.name)}" ${item.builtin ? "disabled" : ""}>
-            ${svgIcon(item.builtin ? "lock" : "trash")}<span>${escapeHtml(item.builtin ? t("networks.protected") : t("common.deleteShort"))}</span>
-          </button>
+        <div class="network-card-body" id="${bodyId}">
+          <div class="network-card-body-inner">
+            <div class="network-card-details">
+              <div><small>${escapeHtml(t("networks.subnetLabel"))}</small><strong>${escapeHtml(subnet)}</strong></div>
+              <div><small>${escapeHtml(t("networks.gatewayLabel"))}</small><strong>${escapeHtml(gateway)}</strong></div>
+              <div><small>${escapeHtml(t("networks.scope"))}</small><strong>${escapeHtml(item.scope)}</strong></div>
+              <div><small>${escapeHtml(t("networks.connected"))}</small><strong title="${escapeHtml(connectedNames)}">${item.containers}</strong></div>
+            </div>
+            <div class="network-card-foot">
+              <span class="network-flags">
+                ${item.internal ? `<i>${escapeHtml(t("networks.internal"))}</i>` : ""}
+                ${item.attachable ? `<i>${escapeHtml(t("networks.attachableShort"))}</i>` : ""}
+                ${item.builtin ? `<i>${escapeHtml(t("networks.protected"))}</i>` : ""}
+              </span>
+              <button class="network-delete action danger" data-network-delete="${escapeHtml(item.id)}" data-network-name="${escapeHtml(item.name)}" ${item.builtin ? "disabled" : ""}>
+                ${svgIcon(item.builtin ? "lock" : "trash")}<span>${escapeHtml(item.builtin ? t("networks.protected") : t("common.deleteShort"))}</span>
+              </button>
+            </div>
+          </div>
         </div>
       </article>`;
     }).join("") : `<div class="panel empty-state">${escapeHtml(t("networks.none"))}</div>`;
+    $$(".network-card").forEach(card => {
+      const head = card.querySelector("[data-network-head]");
+      const toggle = card.querySelector(".network-card-toggle");
+      const setExpanded = expanded => {
+        card.classList.toggle("expanded", expanded);
+        toggle.setAttribute("aria-expanded", String(expanded));
+        toggle.title = t(expanded ? "networks.collapse" : "networks.expand");
+        toggle.setAttribute("aria-label", toggle.title);
+        if (expanded) expandedNetworks.add(card.dataset.networkId);
+        else expandedNetworks.delete(card.dataset.networkId);
+      };
+      const toggleCard = () => setExpanded(!card.classList.contains("expanded"));
+      head.addEventListener("click", event => {
+        if (event.target.closest("button, a, input, select, label")) return;
+        toggleCard();
+      });
+      toggle.addEventListener("click", toggleCard);
+      setExpanded(card.classList.contains("expanded"));
+    });
     $$("[data-network-delete]").forEach(button => button.addEventListener("click", () => {
       networkDeleteTarget = {id: button.dataset.networkDelete, name: button.dataset.networkName};
       $("#network-delete-name").textContent = networkDeleteTarget.name;

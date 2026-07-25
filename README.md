@@ -1,6 +1,6 @@
 # Ubuntu Dashboard
 
-![Version](https://img.shields.io/badge/version-1.15.0-f05a28)
+![Version](https://img.shields.io/badge/version-1.16.0-f05a28)
 ![Image](https://img.shields.io/badge/image-ghcr.io%2Fmaomao63%2Fubuntu--dashboard-blue)
 ![Platforms](https://img.shields.io/badge/platform-linux%2Famd64%20%7C%20linux%2Farm64-2ea44f)
 [![Publish Docker image](https://github.com/Maomao63/ubuntu-dashboard/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Maomao63/ubuntu-dashboard/actions/workflows/docker-publish.yml)
@@ -404,10 +404,12 @@ persistent data volume and is never returned to the browser after saving.
 ### Docker networks
 
 The **Networks** page lists built-in, Compose and custom Docker networks with
-their driver, subnet, gateway, scope and attached-container count. Custom
-bridge networks can be created with optional IPAM settings. Built-in networks
-are protected; deleting a custom network requires typing its exact name, and
-Docker rejects removal while containers are still attached.
+their driver, subnet, gateway, scope and attached-container count. Every
+network starts as a compact row and expands independently to show its details
+and actions, keeping larger network inventories easy to scan. Custom bridge
+networks can be created with optional IPAM settings. Built-in networks are
+protected; deleting a custom network requires typing its exact name, and Docker
+rejects removal while containers are still attached.
 
 ## Updating
 
