@@ -7,6 +7,9 @@ let failedUpdates = 0;
 const LIVE_INTERVAL_MS = 500;
 let selectedShare = null;
 let selectedPath = "";
+let currentFileData = null;
+let fileSearchTimer = null;
+let shareRequestId = 0;
 let currentPage = "overview";
 let currentLanguage = localStorage.getItem("ubuntu-dashboard-language") || "en";
 let csrfToken = "";
@@ -30,10 +33,14 @@ function applyLanguage(language) {
   document.documentElement.lang = currentLanguage;
   $("#language-select").value = currentLanguage;
   $$("[data-i18n]").forEach(element => element.textContent = t(element.dataset.i18n));
+  $$("[data-i18n-placeholder]").forEach(element => {
+    element.placeholder = t(element.dataset.i18nPlaceholder);
+    element.setAttribute("aria-label", element.placeholder);
+  });
   updatePageHeading();
   updateClock();
   if (overview) render(overview);
-  if (currentPage === "shares") loadShares(selectedShare, selectedPath);
+  if (currentPage === "shares") loadShares(selectedShare, selectedPath, $("#file-search").value.trim());
   if (currentPage === "networks") loadNetworks();
   renderDiscordStrip();
   if (sessionInfo) {
@@ -103,7 +110,7 @@ function setPage(name) {
   if (name === "processes") loadProcesses();
   if (name === "logs") loadLogs();
   if (name === "networks") loadNetworks();
-  if (name === "shares") loadShares(selectedShare, selectedPath);
+  if (name === "shares") loadShares(selectedShare, selectedPath, $("#file-search").value.trim());
   if (name === "settings") loadAccountSettings();
   if (name === "cli") {
     requestAnimationFrame(() => {
@@ -602,26 +609,38 @@ $("#network-delete-form").addEventListener("submit", async event => {
   }
 });
 
-function shareUrl(share, path = "") {
+function shareUrl(share, path = "", search = "") {
   const params = new URLSearchParams();
   if (share !== null && share !== undefined) params.set("share", share);
   if (path) params.set("path", path);
+  if (search) params.set("search", search);
   return `/api/files?${params}`;
 }
 
-async function loadShares(share = null, path = "") {
+async function loadShares(share = null, path = "", search = "") {
+  if (String(selectedShare) !== String(share) || selectedPath !== path) {
+    clearTimeout(fileSearchTimer);
+  }
+  const requestId = ++shareRequestId;
   try {
-    const response = await fetch(shareUrl(share, path), {cache: "no-store"});
+    const response = await fetch(shareUrl(share, path, search), {cache: "no-store"});
     const data = await response.json();
+    if (requestId !== shareRequestId) return;
     if (!response.ok) throw new Error(data.error || "Freigaben konnten nicht geladen werden");
-    selectedShare = data.selected ?? share;
-    selectedPath = data.relative || "";
+    const nextShare = data.selected ?? share;
+    const nextPath = data.relative || "";
+    if (String(selectedShare) !== String(nextShare) || selectedPath !== nextPath) {
+      $("#file-search").value = "";
+    }
+    selectedShare = nextShare;
+    selectedPath = nextPath;
     if (data.selected === undefined && data.shares.length) {
       await loadShares(data.shares[0].id, "");
       return;
     }
     $("#new-folder").disabled = data.selected === undefined;
     $("#new-file").disabled = data.selected === undefined;
+    $("#file-search").disabled = data.selected === undefined;
     $("#location-count").textContent = data.shares.length;
     $("#share-list").classList.remove("loading");
     $("#share-list").innerHTML = data.shares.length ? data.shares.map(item => `
@@ -632,12 +651,14 @@ async function loadShares(share = null, path = "") {
     $$("[data-share]").forEach(button => button.addEventListener("click", () => loadShares(Number(button.dataset.share), "")));
     renderFiles(data);
   } catch (error) {
+    if (requestId !== shareRequestId) return;
     $("#file-list").innerHTML = `<div class="error-box">${escapeHtml(error.message)}</div>`;
   }
 }
 
 function renderFiles(data) {
   if (data.selected === undefined) return;
+  currentFileData = data;
   const share = data.shares.find(item => item.id === Number(data.selected));
   const used = Math.max(0, (share?.total || 0) - (share?.free || 0));
   const percent = share?.total ? Math.round(used / share.total * 100) : 0;
@@ -663,7 +684,7 @@ function renderFiles(data) {
   $$("[data-browse-path]").forEach(button => button.addEventListener("click", () => loadShares(selectedShare, button.dataset.browsePath)));
   $("#file-list").innerHTML = data.entries.length ? data.entries.map(item => {
     const nextPath = [data.relative, item.name].filter(Boolean).join("/");
-    return `<div class="file-row">
+    return `<div class="file-row" data-file-name="${escapeHtml(item.name)}">
       <div class="file-name">
         <span class="file-icon ${item.type === "directory" ? "folder" : ""}">${svgIcon(item.type === "directory" ? "folder" : "file")}</span>
         ${item.type === "directory"
@@ -681,10 +702,44 @@ function renderFiles(data) {
         <button class="file-action danger" data-delete-path="${escapeHtml(nextPath)}" data-delete-name="${escapeHtml(item.name)}" title="${escapeHtml(t("common.delete"))}">${svgIcon("trash")}</button>
       </span>
     </div>`;
-  }).join("") : `<div class="empty-state">${t("common.empty")}</div>`;
+  }).join("") + `<div id="file-search-empty" class="empty-state" hidden>${t("browser.noSearchResults")}</div>`
+    : `<div class="empty-state">${data.search ? t("browser.noSearchResults") : t("common.empty")}</div>`;
   $$("[data-open-path]").forEach(button => button.addEventListener("click", () => loadShares(selectedShare, button.dataset.openPath)));
   $$("[data-edit-path]").forEach(button => button.addEventListener("click", () => openTextEditor(button.dataset.editPath)));
   $$("[data-delete-path]").forEach(button => button.addEventListener("click", () => openDeleteDialog(button.dataset.deletePath, button.dataset.deleteName)));
+  applyFileSearch();
+}
+
+function applyFileSearch() {
+  if (!currentFileData?.entries) return;
+  const query = $("#file-search").value.trim().toLocaleLowerCase(currentLanguage);
+  const serverQuery = String(currentFileData.search || "").toLocaleLowerCase(currentLanguage);
+  const serverMatchesQuery = Boolean(query && query === serverQuery);
+  const rows = $$("#file-list .file-row");
+  let visible = 0;
+  rows.forEach(row => {
+    const matches = !query
+      || serverMatchesQuery
+      || row.dataset.fileName.toLocaleLowerCase(currentLanguage).includes(query);
+    row.hidden = !matches;
+    if (matches) visible++;
+  });
+  const empty = $("#file-search-empty");
+  if (empty) empty.hidden = !query || visible > 0;
+  const serverTotal = currentFileData.totalEntries ?? currentFileData.entries.length;
+  const total = query === serverQuery ? serverTotal : currentFileData.entries.length;
+  const count = query && query !== serverQuery
+    ? `${visible} / ${total}`
+    : `${Math.min(visible, 500)}${currentFileData.truncated ? "+" : ""}`;
+  $("#share-count").textContent = `${count} ${t("common.entries")}`;
+}
+
+function queueFileSearch() {
+  applyFileSearch();
+  clearTimeout(fileSearchTimer);
+  fileSearchTimer = setTimeout(() => {
+    loadShares(selectedShare, selectedPath, $("#file-search").value.trim());
+  }, 220);
 }
 
 async function fileAction(action, payload) {
@@ -737,7 +792,17 @@ function openDeleteDialog(path, name) {
 }
 
 $("#new-file").addEventListener("click", openNewFileDialog);
-$("#browser-refresh").addEventListener("click", () => loadShares(selectedShare, selectedPath));
+$("#browser-refresh").addEventListener("click", () => loadShares(
+  selectedShare,
+  selectedPath,
+  $("#file-search").value.trim()
+));
+$("#file-search").addEventListener("input", queueFileSearch);
+$("#file-search").addEventListener("keydown", event => {
+  if (event.key !== "Escape" || !event.currentTarget.value) return;
+  event.currentTarget.value = "";
+  queueFileSearch();
+});
 $("#file-content").addEventListener("keydown", event => {
   if (event.key !== "Tab") return;
   event.preventDefault();

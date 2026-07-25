@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0e13">
   <title>Ubuntu Server Dashboard</title>
-  <link rel="stylesheet" href="/vendor/xterm.css?v=1.12.3">
-  <link rel="stylesheet" href="/styles.css?v=1.12.3">
+  <link rel="stylesheet" href="/vendor/xterm.css?v=1.12.4">
+  <link rel="stylesheet" href="/styles.css?v=1.12.4">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -26,6 +26,7 @@
     <symbol id="icon-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2"/><path d="M3 20c0-4 2-6 6-6s6 2 6 6M15 14c3 0 5 2 5 5"/></symbol>
     <symbol id="icon-drive" viewBox="0 0 24 24"><path d="M5 4h14l2 13H3z"/><path d="M6 17v3h12v-3M8 9h8"/></symbol>
     <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 9a7 7 0 0 1 11-2l3 5M18 15a7 7 0 0 1-11 2l-3-5"/></symbol>
+    <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></symbol>
     <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3z"/></symbol>
     <symbol id="icon-file" viewBox="0 0 24 24"><path d="M6 2h8l4 4v16H6z"/><path d="M14 2v5h5M9 12h6M9 16h6"/></symbol>
     <symbol id="icon-edit" viewBox="0 0 24 24"><path d="m4 20 4-1 11-11-3-3L5 16zM14 7l3 3"/></symbol>
@@ -212,6 +213,14 @@
             <button class="action browser-create" id="new-file" disabled><svg class="ui-icon"><use href="#icon-file-plus"></use></svg><span data-i18n="browser.newFile">New file</span></button>
             <button class="action browser-refresh" id="browser-refresh" title="Refresh"><svg class="ui-icon"><use href="#icon-refresh"></use></svg></button>
           </div>
+          <div class="file-search-strip">
+            <label class="browser-search" for="file-search">
+              <svg class="ui-icon" aria-hidden="true"><use href="#icon-search"></use></svg>
+              <input id="file-search" type="search" autocomplete="off" spellcheck="false" disabled
+                     data-i18n-placeholder="browser.search" placeholder="Search this folder">
+            </label>
+            <small data-i18n="browser.searchHint">Filter the current folder by name</small>
+          </div>
           <div class="file-table-head">
             <span data-i18n="browser.name">Name</span><span data-i18n="browser.owner">Owner</span>
             <span data-i18n="browser.permission">Permission</span><span data-i18n="browser.size">Size</span>
@@ -384,9 +393,9 @@
   </dialog>
 
   <div id="toast" role="status"></div>
-  <script src="/i18n.js?v=1.12.3"></script>
-  <script src="/vendor/xterm.js?v=1.12.3"></script>
-  <script src="/vendor/addon-fit.js?v=1.12.3"></script>
-  <script src="/app.js?v=1.12.3"></script>
+  <script src="/i18n.js?v=1.12.4"></script>
+  <script src="/vendor/xterm.js?v=1.12.4"></script>
+  <script src="/vendor/addon-fit.js?v=1.12.4"></script>
+  <script src="/app.js?v=1.12.4"></script>
 </body>
 </html>

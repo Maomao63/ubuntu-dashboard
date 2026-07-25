@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
 # Deliberately image-owned: old Compose files must not be able to override the UI version.
-VERSION = "1.12.3"
+VERSION = "1.12.4"
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 CONFIG_FILE = Path(os.getenv("CONFIG_FILE", "/data/config.json"))
@@ -1713,7 +1713,7 @@ def host_identity_maps():
     return users, groups
 
 
-def shares_info(share_index=None, relative=""):
+def shares_info(share_index=None, relative="", search=""):
     roots = share_roots()
     public_roots = []
     for index, root in enumerate(roots):
@@ -1745,8 +1745,11 @@ def shares_info(share_index=None, relative=""):
         raise ValueError("Ordner nicht gefunden")
     entries = []
     users, groups = host_identity_maps()
+    search = unquote(str(search or "")).strip()[:200]
+    normalized_search = search.casefold()
     try:
-        items = sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+        items = [item for item in target.iterdir() if not normalized_search or normalized_search in item.name.casefold()]
+        items.sort(key=lambda p: (not p.is_dir(), p.name.lower()))
         for item in items[:500]:
             try:
                 stat_info = item.stat()
@@ -1770,7 +1773,9 @@ def shares_info(share_index=None, relative=""):
         "selected": int(share_index),
         "relative": relative,
         "entries": entries,
-        "truncated": len(entries) == 500,
+        "search": search,
+        "totalEntries": len(items),
+        "truncated": len(items) > 500,
     }
 
 
@@ -1951,8 +1956,9 @@ class Handler(BaseHTTPRequestHandler):
             query = parse_qs(urlparse(self.path).query)
             share = query.get("share", [None])[0]
             relative = query.get("path", [""])[0]
+            search = query.get("search", [""])[0]
             try:
-                self.send_json(shares_info(share, relative))
+                self.send_json(shares_info(share, relative, search))
             except ValueError as exc:
                 self.send_json({"error": str(exc)}, 400)
         elif path == "/api/file":

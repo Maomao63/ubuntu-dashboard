@@ -51,6 +51,7 @@ window.I18N = {
     "docker.updateAvailable": "Container image update available",
     "docker.stacks": "stacks", "docker.noStacks": "No Compose stacks detected",
     "browser.writeAccess": "WRITE ACCESS", "browser.locations": "Locations", "browser.newFolder": "New folder", "browser.newFile": "New file",
+    "browser.search": "Search this folder", "browser.searchHint": "Filter the current folder by name", "browser.noSearchResults": "No matching files or folders.",
     "browser.newFolderTitle": "Create folder", "browser.newFileTitle": "New text file", "browser.folderName": "Folder name", "browser.fileName": "File name",
     "browser.destructive": "DESTRUCTIVE ACTION", "browser.confirmDelete": "Delete permanently?", "browser.deleteWarning": "This cannot be undone. The selected item and all contents will be deleted:",
     "browser.saved": "File saved", "browser.created": "Folder created", "browser.deleted": "Item deleted",
@@ -125,6 +126,7 @@ window.I18N = {
     "docker.updateAvailable": "Container-Image-Update verfügbar",
     "docker.stacks": "Stacks", "docker.noStacks": "Keine Compose-Stacks erkannt",
     "browser.writeAccess": "SCHREIBZUGRIFF", "browser.locations": "Orte", "browser.newFolder": "Neuer Ordner", "browser.newFile": "Neue Datei",
+    "browser.search": "Diesen Ordner durchsuchen", "browser.searchHint": "Aktuellen Ordner nach Namen filtern", "browser.noSearchResults": "Keine passenden Dateien oder Ordner.",
     "browser.newFolderTitle": "Ordner erstellen", "browser.newFileTitle": "Neue Textdatei", "browser.folderName": "Ordnername", "browser.fileName": "Dateiname",
     "browser.destructive": "ENDGÜLTIGE AKTION", "browser.confirmDelete": "Endgültig löschen?", "browser.deleteWarning": "Dies kann nicht rückgängig gemacht werden. Das Element und alle Inhalte werden gelöscht:",
     "browser.saved": "Datei gespeichert", "browser.created": "Ordner erstellt", "browser.deleted": "Element gelöscht",
@@ -148,7 +150,7 @@ window.I18N = {
     "common.cancel": "Abbrechen", "common.save": "Speichern", "common.create": "Erstellen", "common.delete": "Endgültig löschen", "common.deleteShort": "Löschen", "common.edit": "Bearbeiten", "common.open": "Öffnen", "common.enabled": "Aktiviert", "common.disabled": "Deaktiviert"
   },
   fr: {
-    "overview.systemTime": "Heure système", "overview.health": "État", "overview.loadAverage": "Charge moyenne", "overview.activeProcesses": "Processus actifs", "overview.hostProcesses": "processus hôte", "overview.rootUsage": "Utilisation racine", "overview.swapUsage": "Utilisation swap", "health.operational": "Tous les systèmes opérationnels", "health.warnings": "Avertissements détectés", "health.attention": "Intervention requise", "browser.storageLocation": "EMPLACEMENT", "browser.capacityUnavailable": "Capacité indisponible", "common.usedOf": "utilisés sur",
+    "overview.systemTime": "Heure système", "overview.health": "État", "overview.loadAverage": "Charge moyenne", "overview.activeProcesses": "Processus actifs", "overview.hostProcesses": "processus hôte", "overview.rootUsage": "Utilisation racine", "overview.swapUsage": "Utilisation swap", "health.operational": "Tous les systèmes opérationnels", "health.warnings": "Avertissements détectés", "health.attention": "Intervention requise", "browser.storageLocation": "EMPLACEMENT", "browser.capacityUnavailable": "Capacité indisponible", "browser.search": "Rechercher dans ce dossier", "browser.searchHint": "Filtrer le dossier actuel par nom", "browser.noSearchResults": "Aucun fichier ou dossier correspondant.", "common.usedOf": "utilisés sur",
     "nav.overview": "Aperçu", "nav.containers": "Conteneurs", "nav.storage": "Stockage", "nav.shares": "Navigateur de fichiers",
     "nav.processes": "Processus", "nav.logs": "Journaux", "nav.cli": "CLI", "status.connected": "Connecté en direct",
     "layout.label": "Disposition", "page.overview": "Aperçu", "page.docker": "Docker", "page.storage": "Stockage",
@@ -161,7 +163,7 @@ window.I18N = {
     "shares.none": "Aucun partage détecté.", "shares.select": "Sélectionner un partage", "shares.back": "Retour"
   },
   es: {
-    "overview.systemTime": "Hora del sistema", "overview.health": "Estado", "overview.loadAverage": "Carga media", "overview.activeProcesses": "Procesos activos", "overview.hostProcesses": "procesos del host", "overview.rootUsage": "Uso raíz", "overview.swapUsage": "Uso de swap", "health.operational": "Todos los sistemas operativos", "health.warnings": "Advertencias detectadas", "health.attention": "Se requiere atención", "browser.storageLocation": "UBICACIÓN", "browser.capacityUnavailable": "Capacidad no disponible", "common.usedOf": "usados de",
+    "overview.systemTime": "Hora del sistema", "overview.health": "Estado", "overview.loadAverage": "Carga media", "overview.activeProcesses": "Procesos activos", "overview.hostProcesses": "procesos del host", "overview.rootUsage": "Uso raíz", "overview.swapUsage": "Uso de swap", "health.operational": "Todos los sistemas operativos", "health.warnings": "Advertencias detectadas", "health.attention": "Se requiere atención", "browser.storageLocation": "UBICACIÓN", "browser.capacityUnavailable": "Capacidad no disponible", "browser.search": "Buscar en esta carpeta", "browser.searchHint": "Filtrar la carpeta actual por nombre", "browser.noSearchResults": "No hay archivos o carpetas coincidentes.", "common.usedOf": "usados de",
     "nav.overview": "Resumen", "nav.containers": "Contenedores", "nav.storage": "Almacenamiento", "nav.shares": "Explorador de archivos",
     "nav.processes": "Procesos", "nav.logs": "Registros", "nav.cli": "CLI", "status.connected": "Conectado en vivo",
     "layout.label": "Diseño", "page.overview": "Resumen", "page.docker": "Docker", "page.storage": "Almacenamiento",
@@ -174,7 +176,7 @@ window.I18N = {
     "shares.none": "No se detectaron recursos.", "shares.select": "Seleccionar recurso", "shares.back": "Atrás"
   },
   it: {
-    "overview.systemTime": "Ora di sistema", "overview.health": "Stato", "overview.loadAverage": "Carico medio", "overview.activeProcesses": "Processi attivi", "overview.hostProcesses": "processi host", "overview.rootUsage": "Uso root", "overview.swapUsage": "Uso swap", "health.operational": "Tutti i sistemi operativi", "health.warnings": "Avvisi rilevati", "health.attention": "Intervento richiesto", "browser.storageLocation": "POSIZIONE", "browser.capacityUnavailable": "Capacità non disponibile", "common.usedOf": "usati su",
+    "overview.systemTime": "Ora di sistema", "overview.health": "Stato", "overview.loadAverage": "Carico medio", "overview.activeProcesses": "Processi attivi", "overview.hostProcesses": "processi host", "overview.rootUsage": "Uso root", "overview.swapUsage": "Uso swap", "health.operational": "Tutti i sistemi operativi", "health.warnings": "Avvisi rilevati", "health.attention": "Intervento richiesto", "browser.storageLocation": "POSIZIONE", "browser.capacityUnavailable": "Capacità non disponibile", "browser.search": "Cerca in questa cartella", "browser.searchHint": "Filtra la cartella corrente per nome", "browser.noSearchResults": "Nessun file o cartella corrispondente.", "common.usedOf": "usati su",
     "nav.overview": "Panoramica", "nav.containers": "Container", "nav.storage": "Archiviazione", "nav.shares": "Gestione file",
     "nav.processes": "Processi", "nav.logs": "Log di sistema", "nav.cli": "CLI", "status.connected": "Connesso in tempo reale",
     "layout.label": "Layout", "page.overview": "Panoramica", "page.docker": "Docker", "page.storage": "Archiviazione",
@@ -187,7 +189,7 @@ window.I18N = {
     "shares.none": "Nessuna condivisione rilevata.", "shares.select": "Seleziona condivisione", "shares.back": "Indietro"
   },
   pt: {
-    "overview.systemTime": "Hora do sistema", "overview.health": "Estado", "overview.loadAverage": "Carga média", "overview.activeProcesses": "Processos ativos", "overview.hostProcesses": "processos do host", "overview.rootUsage": "Uso da raiz", "overview.swapUsage": "Uso de swap", "health.operational": "Todos os sistemas operacionais", "health.warnings": "Avisos detetados", "health.attention": "Atenção necessária", "browser.storageLocation": "LOCALIZAÇÃO", "browser.capacityUnavailable": "Capacidade indisponível", "common.usedOf": "usados de",
+    "overview.systemTime": "Hora do sistema", "overview.health": "Estado", "overview.loadAverage": "Carga média", "overview.activeProcesses": "Processos ativos", "overview.hostProcesses": "processos do host", "overview.rootUsage": "Uso da raiz", "overview.swapUsage": "Uso de swap", "health.operational": "Todos os sistemas operacionais", "health.warnings": "Avisos detetados", "health.attention": "Atenção necessária", "browser.storageLocation": "LOCALIZAÇÃO", "browser.capacityUnavailable": "Capacidade indisponível", "browser.search": "Pesquisar nesta pasta", "browser.searchHint": "Filtrar a pasta atual por nome", "browser.noSearchResults": "Nenhum ficheiro ou pasta correspondente.", "common.usedOf": "usados de",
     "nav.overview": "Visão geral", "nav.containers": "Contentores", "nav.storage": "Armazenamento", "nav.shares": "Gestor de ficheiros",
     "nav.processes": "Processos", "nav.logs": "Registos", "nav.cli": "CLI", "status.connected": "Ligado em direto",
     "layout.label": "Layout", "page.overview": "Visão geral", "page.docker": "Docker", "page.storage": "Armazenamento",
@@ -200,7 +202,7 @@ window.I18N = {
     "shares.none": "Nenhuma partilha detetada.", "shares.select": "Selecionar partilha", "shares.back": "Voltar"
   },
   nl: {
-    "overview.systemTime": "Systeemtijd", "overview.health": "Status", "overview.loadAverage": "Gemiddelde belasting", "overview.activeProcesses": "Actieve processen", "overview.hostProcesses": "hostprocessen", "overview.rootUsage": "Rootgebruik", "overview.swapUsage": "Swapgebruik", "health.operational": "Alle systemen operationeel", "health.warnings": "Waarschuwingen gevonden", "health.attention": "Aandacht vereist", "browser.storageLocation": "OPSLAGLOCATIE", "browser.capacityUnavailable": "Capaciteit niet beschikbaar", "common.usedOf": "gebruikt van",
+    "overview.systemTime": "Systeemtijd", "overview.health": "Status", "overview.loadAverage": "Gemiddelde belasting", "overview.activeProcesses": "Actieve processen", "overview.hostProcesses": "hostprocessen", "overview.rootUsage": "Rootgebruik", "overview.swapUsage": "Swapgebruik", "health.operational": "Alle systemen operationeel", "health.warnings": "Waarschuwingen gevonden", "health.attention": "Aandacht vereist", "browser.storageLocation": "OPSLAGLOCATIE", "browser.capacityUnavailable": "Capaciteit niet beschikbaar", "browser.search": "Zoeken in deze map", "browser.searchHint": "Filter de huidige map op naam", "browser.noSearchResults": "Geen overeenkomende bestanden of mappen.", "common.usedOf": "gebruikt van",
     "nav.overview": "Overzicht", "nav.containers": "Containers", "nav.storage": "Opslag", "nav.shares": "Bestandsbeheer",
     "nav.processes": "Processen", "nav.logs": "Systeemlog", "nav.cli": "CLI", "status.connected": "Live verbonden",
     "layout.label": "Indeling", "page.overview": "Overzicht", "page.docker": "Docker", "page.storage": "Opslag",
@@ -213,7 +215,7 @@ window.I18N = {
     "shares.none": "Geen shares gevonden.", "shares.select": "Selecteer share", "shares.back": "Terug"
   },
   pl: {
-    "overview.systemTime": "Czas systemowy", "overview.health": "Stan", "overview.loadAverage": "Średnie obciążenie", "overview.activeProcesses": "Aktywne procesy", "overview.hostProcesses": "procesy hosta", "overview.rootUsage": "Użycie root", "overview.swapUsage": "Użycie swap", "health.operational": "Wszystkie systemy działają", "health.warnings": "Wykryto ostrzeżenia", "health.attention": "Wymagana uwaga", "browser.storageLocation": "LOKALIZACJA", "browser.capacityUnavailable": "Pojemność niedostępna", "common.usedOf": "użyto z",
+    "overview.systemTime": "Czas systemowy", "overview.health": "Stan", "overview.loadAverage": "Średnie obciążenie", "overview.activeProcesses": "Aktywne procesy", "overview.hostProcesses": "procesy hosta", "overview.rootUsage": "Użycie root", "overview.swapUsage": "Użycie swap", "health.operational": "Wszystkie systemy działają", "health.warnings": "Wykryto ostrzeżenia", "health.attention": "Wymagana uwaga", "browser.storageLocation": "LOKALIZACJA", "browser.capacityUnavailable": "Pojemność niedostępna", "browser.search": "Szukaj w tym folderze", "browser.searchHint": "Filtruj bieżący folder według nazwy", "browser.noSearchResults": "Brak pasujących plików lub folderów.", "common.usedOf": "użyto z",
     "nav.overview": "Przegląd", "nav.containers": "Kontenery", "nav.storage": "Pamięć", "nav.shares": "Przeglądarka plików",
     "nav.processes": "Procesy", "nav.logs": "Dzienniki", "nav.cli": "CLI", "status.connected": "Połączono na żywo",
     "layout.label": "Układ", "page.overview": "Przegląd", "page.docker": "Docker", "page.storage": "Pamięć",
