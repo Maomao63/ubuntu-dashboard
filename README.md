@@ -146,18 +146,70 @@ services:
         read_only: true
       - /sys:/host/sys:ro
       - /var/run/docker.sock:/var/run/docker.sock
-      - ubuntu-dashboard-data:/data
+      # Persistent dashboard configuration. May be an absolute host path.
+      - "${DASHBOARD_CONFIG_PATH:-./config}:/data"
     read_only: true
     tmpfs:
       - /tmp:size=16M,mode=1777
-
-volumes:
-  ubuntu-dashboard-data:
 ```
 
 `pull_policy: always` makes a new deployment fetch the current `:latest`
 image. The container itself remains read-only; only `/tmp`, the persistent
-settings volume and the explicitly mounted host paths are writable.
+configuration directory and the explicitly mounted host paths are writable.
+`DASHBOARD_CONFIG_PATH` may point to any relative or absolute host directory.
+The directory contains `account.json`, `notifications.json` and any future
+persistent dashboard settings.
+
+## Persistent configuration
+
+The container writes all server-side dashboard configuration to `/data`.
+Compose maps that directory to the host path selected with
+`DASHBOARD_CONFIG_PATH`:
+
+```dotenv
+# Directory next to compose.yml
+DASHBOARD_CONFIG_PATH=./config
+
+# Or an absolute host directory
+DASHBOARD_CONFIG_PATH=/srv/ubuntu-dashboard/config
+```
+
+Relative paths are resolved from the directory containing `compose.yml`.
+Absolute paths are recommended for server management interfaces such as
+Arcane. Docker creates the directory when it does not exist. It must remain
+writable by the container.
+
+| File | Contents |
+| --- | --- |
+| `account.json` | Dashboard username, password salt and PBKDF2 password hash |
+| `notifications.json` | Discord webhook and notification preferences |
+
+The Discord webhook token and password hash are sensitive. Do not commit the
+configuration directory to Git, and include it in protected server backups.
+Browser-only preferences such as language and card order remain in the
+browser's local storage.
+
+### Migrating from the former named volume
+
+Releases that used `ubuntu-dashboard-data:/data` stored these files in a Docker
+named volume. They are not copied automatically when switching to a host
+directory. Stop the dashboard, find the old volume name and copy its contents:
+
+```bash
+docker compose down
+docker volume ls --format '{{.Name}}' | grep 'ubuntu-dashboard-data$'
+mkdir -p ./config
+docker run --rm \
+  --mount type=volume,src=YOUR_OLD_VOLUME_NAME,dst=/from,readonly \
+  --mount type=bind,src="$(pwd)/config",dst=/to \
+  alpine sh -c 'cp -a /from/. /to/'
+docker compose up -d
+```
+
+Replace `YOUR_OLD_VOLUME_NAME` with the name printed by `docker volume ls`. If
+an absolute `DASHBOARD_CONFIG_PATH` is configured, use that same absolute path
+as the `src` of the bind mount instead of `$(pwd)/config`. Keep the old volume
+until the migrated account and Discord settings have been verified.
 
 ## Arcane installation
 
@@ -165,10 +217,12 @@ settings volume and the explicitly mounted host paths are writable.
 2. Paste the contents of [`compose.yml`](compose.yml).
 3. Add the values from [`.env.example`](.env.example) in the project's
    environment editor.
-4. Set a strong `DASHBOARD_PASSWORD`.
-5. If automatic network detection does not select the correct interface, set
+4. Set `DASHBOARD_CONFIG_PATH` to an absolute persistent host directory, for
+   example `/srv/ubuntu-dashboard/config`.
+5. Set a strong `DASHBOARD_PASSWORD`.
+6. If automatic network detection does not select the correct interface, set
    `NETWORK_INTERFACE`, for example to `bond0`.
-6. Deploy the project and open `http://SERVER-IP:8080`.
+7. Deploy the project and open `http://SERVER-IP:8080`.
 
 Arcane must use the complete GHCR image name. If it tries to pull
 `ubuntu-dashboard:latest` from Docker Hub, the project still contains an old
@@ -190,6 +244,7 @@ Example `.env`:
 DASHBOARD_PORT=8080
 DASHBOARD_USER=admin
 DASHBOARD_PASSWORD=use-a-long-unique-password
+DASHBOARD_CONFIG_PATH=./config
 ALLOW_DOCKER_ACTIONS=true
 SHARE_ROOTS=
 SSH_HOST=auto
@@ -204,6 +259,7 @@ SESSION_TTL=43200
 | `DASHBOARD_PORT` | `8080` | Port exposed on the Docker host |
 | `DASHBOARD_USER` | `admin` | Username used to create the initial account |
 | `DASHBOARD_PASSWORD` | `change-this-password-now` | Initial account password; change before deployment |
+| `DASHBOARD_CONFIG_PATH` | `./config` | Host directory for persistent account, Discord and other dashboard settings |
 | `ALLOW_DOCKER_ACTIONS` | `true` | Allows container start, stop and restart actions |
 | `SHARE_ROOTS` | empty | Additional comma-separated Data Browser roots |
 | `SSH_HOST` | `auto` | SSH target; `auto` uses the dashboard host name or IP |
@@ -214,7 +270,7 @@ SESSION_TTL=43200
 
 The environment credentials create the account only when no persistent account
 exists yet. Changes made in **Settings** are stored as a PBKDF2 password hash in
-the `ubuntu-dashboard-data` volume and take precedence after restarts.
+`DASHBOARD_CONFIG_PATH` and take precedence after restarts.
 
 ## Host integration
 
@@ -227,7 +283,7 @@ The mounts in `compose.yml` have distinct purposes:
 | `/proc/1/net/route` | Host default-route detection | Read-only |
 | `/sys:/host/sys` | Network counters, block devices and hardware telemetry | Read-only |
 | `/var/run/docker.sock` | Docker inventory, health and container actions | Read/write |
-| `ubuntu-dashboard-data:/data` | Account and Discord settings | Persistent |
+| `${DASHBOARD_CONFIG_PATH:-./config}:/data` | Account, Discord and other dashboard settings | Persistent, read/write |
 
 `privileged: true` is required for broad physical-disk and SMART access across
 different Linux hosts. Virtual machines may expose only virtual disks and no
@@ -328,8 +384,8 @@ docker image prune -f
 In Arcane, use **Pull** followed by **Redeploy**. A browser refresh alone does
 not replace a running container image.
 
-Dashboard settings survive updates because they are stored in the named
-`ubuntu-dashboard-data` volume.
+Dashboard settings survive updates because they are stored in the persistent
+directory selected with `DASHBOARD_CONFIG_PATH`.
 
 ## Security
 
@@ -353,7 +409,8 @@ Treat access to the dashboard as access to the server itself.
   layer.
 - Use a dedicated SSH account with only the permissions it requires.
 - Set `ALLOW_DOCKER_ACTIONS=false` if container control is not needed.
-- Back up the `ubuntu-dashboard-data` volume with the rest of the host.
+- Back up the directory selected with `DASHBOARD_CONFIG_PATH` with the rest of
+  the host.
 
 ## Troubleshooting
 
@@ -425,11 +482,12 @@ If direct SSH works but `auto` does not, set `SSH_HOST` explicitly.
 
 ### Changed `.env` credentials are ignored
 
-The account saved in the persistent volume intentionally overrides the initial
-environment values. Change the credentials in the dashboard Settings page.
-Removing the named volume resets all persistent dashboard settings, including
-the account and Discord webhook, and should only be used when that data is no
-longer needed.
+The account saved in the persistent configuration directory intentionally
+overrides the initial environment values. Change the credentials in the
+dashboard Settings page.
+Removing the contents of `DASHBOARD_CONFIG_PATH` resets all persistent
+dashboard settings, including the account and Discord webhook, and should only
+be done when that data is no longer needed.
 
 ## Local development
 
