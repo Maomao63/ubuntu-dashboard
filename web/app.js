@@ -505,6 +505,7 @@ async function loadNetworks() {
       const gateway = item.gateways.join(", ") || "–";
       const composeProject = item.labels["com.docker.compose.project"];
       const kind = item.builtin ? t("networks.system") : composeProject ? `Compose · ${composeProject}` : t("networks.customNetwork");
+      const connectedNames = (item.containerNames || []).join(", ");
       return `<article class="panel network-card ${item.builtin ? "builtin" : ""}">
         <div class="network-card-head">
           <span class="network-card-icon">${svgIcon("network")}</span>
@@ -515,7 +516,7 @@ async function loadNetworks() {
           <div><small>${escapeHtml(t("networks.subnetLabel"))}</small><strong>${escapeHtml(subnet)}</strong></div>
           <div><small>${escapeHtml(t("networks.gatewayLabel"))}</small><strong>${escapeHtml(gateway)}</strong></div>
           <div><small>${escapeHtml(t("networks.scope"))}</small><strong>${escapeHtml(item.scope)}</strong></div>
-          <div><small>${escapeHtml(t("networks.connected"))}</small><strong>${item.containers}</strong></div>
+          <div><small>${escapeHtml(t("networks.connected"))}</small><strong title="${escapeHtml(connectedNames)}">${item.containers}</strong></div>
         </div>
         <div class="network-card-foot">
           <span class="network-flags">

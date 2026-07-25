@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parent
 HOST_ROOT = Path(os.getenv("HOST_ROOT", "/host"))
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
 # Deliberately image-owned: old Compose files must not be able to override the UI version.
-VERSION = "1.12.4"
+VERSION = "1.12.5"
 APP_USER = os.getenv("DASHBOARD_USER", "")
 APP_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 CONFIG_FILE = Path(os.getenv("CONFIG_FILE", "/data/config.json"))
@@ -654,18 +654,38 @@ def docker_info():
 def docker_networks_info():
     networks = docker_request("GET", "/networks") or []
     result = []
-    for item in networks:
+    for summary in networks:
+        item = summary
+        network_id = str(summary.get("Id", ""))
+        if network_id:
+            try:
+                inspected = docker_request("GET", f"/networks/{quote(network_id, safe='')}")
+                if isinstance(inspected, dict):
+                    item = {**summary, **inspected}
+            except Exception as exc:
+                print(f"[docker] Network inspect failed for {network_id[:12]}: {exc}")
         configs = (item.get("IPAM") or {}).get("Config") or []
-        containers = item.get("Containers") or {}
+        containers = item.get("Containers")
+        if not isinstance(containers, dict):
+            containers = {}
         name = str(item.get("Name", ""))
+        container_names = sorted(
+            {
+                str(endpoint.get("Name", "")).lstrip("/")
+                for endpoint in containers.values()
+                if isinstance(endpoint, dict) and endpoint.get("Name")
+            },
+            key=str.lower,
+        )
         result.append({
-            "id": str(item.get("Id", "")),
+            "id": str(item.get("Id", network_id)),
             "name": name,
             "driver": str(item.get("Driver", "unknown")),
             "scope": str(item.get("Scope", "local")),
             "subnets": [config.get("Subnet", "") for config in configs if config.get("Subnet")],
             "gateways": [config.get("Gateway", "") for config in configs if config.get("Gateway")],
             "containers": len(containers),
+            "containerNames": container_names,
             "internal": bool(item.get("Internal")),
             "attachable": bool(item.get("Attachable")),
             "ingress": bool(item.get("Ingress")),

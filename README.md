@@ -1,6 +1,6 @@
 # Ubuntu Dashboard
 
-![Version](https://img.shields.io/badge/version-1.12.4-f05a28)
+![Version](https://img.shields.io/badge/version-1.12.5-f05a28)
 ![Image](https://img.shields.io/badge/image-ghcr.io%2Fmaomao63%2Fubuntu--dashboard-blue)
 ![Platforms](https://img.shields.io/badge/platform-linux%2Famd64%20%7C%20linux%2Farm64-2ea44f)
 [![Publish Docker image](https://github.com/Maomao63/ubuntu-dashboard/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Maomao63/ubuntu-dashboard/actions/workflows/docker-publish.yml)
@@ -44,6 +44,7 @@ host names, addresses, account names, paths or other user information.
 - Green, yellow and red Docker health indicators and registry image-update hints
 - Docker network inventory with custom bridge-network creation, protected
   defaults and confirmation-gated deletion
+- Accurate connected-container counts from Docker network inspection
 - Writable Data Browser with automatic SMB, NFS and mounted-data-root detection
 - File owner, group, symbolic permissions and octal mode display
 - Create, edit and delete folders and UTF-8 text/YAML/configuration files
