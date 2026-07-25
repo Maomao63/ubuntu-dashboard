@@ -391,41 +391,200 @@ function render(data) {
       </div>`).join("")
     : `<span>${t("common.noDrives")}</span>`;
   $("#temperatures").classList.toggle("empty-state", !system.disks.length);
-  $("#storage-cards").innerHTML = data.storage.length ? data.storage.map(group => `
-    <article class="storage-card">
-      <div class="storage-card-head">
-        <div><h3><i class="disk-health ${group.status}"></i>${escapeHtml(group.name)}</h3><p>${escapeHtml(group.type)} · ${group.members.length} ${t("storage.drives")}</p></div>
-        <strong>${group.percent}%</strong>
-      </div>
-      <div class="big-bar"><i style="width:${Math.min(group.percent, 100)}%"></i></div>
-      <div class="storage-stats"><span>${bytes(group.used)} ${t("storage.used")}</span><span>${bytes(group.available)} ${t("common.free")} · ${bytes(group.total)} ${t("storage.total")}</span></div>
-      <div class="storage-member-list">
-        ${Object.entries(group.members.reduce((acc, m) => {
-          const key = m.vdev || m.role || "disk";
-          (acc[key] = acc[key] || []).push(m);
-          return acc;
-        }, {})).map(([vdev, members]) => `
-          <div class="vdev-group">
-            <div class="vdev-group-header">
-              <span class="vdev-badge ${escapeHtml(vdev.toLowerCase().split('-')[0])}">${escapeHtml(vdev.toUpperCase())}</span>
-            </div>
-            <div class="vdev-members">
-              ${members.map(member => `
-              <div class="storage-member">
-                <i class="disk-health ${member.status}"></i>
-                <div><b>${escapeHtml(member.name)}</b><small>/dev/${escapeHtml(member.device)}</small></div>
-                <span>${member.temperature === null ? "" : `${member.temperature} °C · `}${member.used !== undefined && member.role === "data" ? `${bytes(member.used)} / ${bytes(member.total || member.size)}` : bytes(member.size)}</span>
-              </div>`).join("")}
+  const storageTypeBadge = (type) => {
+    const lower = type.toLowerCase();
+    let cls = "", label = type;
+    if (lower.includes("zfs")) { cls = "zfs"; label = "ZFS"; }
+    else if (lower.includes("unraid")) { cls = "unraid"; label = "Unraid"; }
+    else if (lower.includes("btrfs")) { cls = "btrfs"; label = "Btrfs"; }
+    else if (lower.includes("lvm")) { cls = "lvm"; label = "LVM"; }
+    else if (lower.includes("linux") || lower.includes("md")) { cls = "md"; label = "MD-RAID"; }
+    return `<span class="storage-type-badge ${cls}">${label}</span>`;
+  };
+  const raidTypeBadge = (raidType) => {
+    if (!raidType) return "";
+    const lower = (raidType || "").toLowerCase();
+    let cls = "stripe";
+    if (lower.includes("mirror")) cls = "mirror";
+    else if (lower.includes("raidz") || lower.includes("raid")) cls = "raidz";
+    else if (lower.includes("draid")) cls = "draid";
+    return `<span class="raid-type-badge ${cls}">${escapeHtml(raidType)}</span>`;
+  };
+  const barClass = (pct) => pct >= 90 ? "crit" : pct >= 70 ? "warn" : "";
+  const percentClass = (pct) => pct >= 90 ? "crit" : pct >= 70 ? "warn" : "";
+  const isZfs = (group) => (group.type || "").toLowerCase().includes("zfs");
+
+  $("#storage-cards").innerHTML = data.storage.length ? data.storage.map(group => {
+    const pct = Math.min(group.percent, 100);
+    const statusClass = group.status === "critical" ? "status-critical" : group.status === "warning" ? "status-warning" : "";
+    const scrubId = `scrub-${encodeURIComponent(group.name).replace(/%/g, "_")}`;
+    const progressId = `progress-${encodeURIComponent(group.name).replace(/%/g, "_")}`;
+    const vdevTree = Object.entries(group.members.reduce((acc, m) => {
+      const key = m.vdev || m.role || "disk";
+      (acc[key] = acc[key] || []).push(m);
+      return acc;
+    }, {})).map(([vdev, members]) => `
+      <div class="vdev-group">
+        <div class="vdev-group-header">
+          <span class="vdev-badge ${escapeHtml(vdev.toLowerCase().split("-")[0])}">${escapeHtml(vdev)}</span>
+          <span class="vdev-disk-count">${members.length} ${members.length === 1 ? "disk" : "disks"}</span>
+        </div>
+        <div class="vdev-members">
+          ${members.map(member => `
+          <div class="storage-member">
+            <i class="disk-health ${member.status}"></i>
+            <div><b>${escapeHtml(member.name)}</b><small>/dev/${escapeHtml(member.device)}</small></div>
+            <span>${member.temperature != null ? `${member.temperature} °C · ` : ""}${member.used !== undefined && member.role === "data" ? `${bytes(member.used)} / ${bytes(member.total || member.size)}` : bytes(member.size)}</span>
+          </div>`).join("")}
+        </div>
+      </div>`).join("");
+
+    return `
+    <article class="storage-card ${statusClass}" data-pool="${escapeHtml(group.name)}">
+      <div class="storage-card-accent"></div>
+      <div class="storage-card-body">
+        <div class="storage-card-head">
+          <div class="storage-card-title">
+            <h3><i class="disk-health ${group.status}"></i>${escapeHtml(group.name)}</h3>
+            <div class="storage-card-meta">
+              ${storageTypeBadge(group.type)}
+              ${group.raidType ? raidTypeBadge(group.raidType) : ""}
+              <p>${group.members.length} ${t("storage.drives")}</p>
             </div>
           </div>
-        `).join("")}
+          <div class="storage-card-actions">
+            ${isZfs(group) ? `<button class="scrub-btn" id="${scrubId}" data-pool="${escapeHtml(group.name)}" title="Start ZFS Scrub">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+              SCRUB
+            </button>` : ""}
+          </div>
+        </div>
+
+        <div class="scrub-progress" id="${progressId}">
+          <div class="scrub-progress-head">
+            <span>⟳ SCRUB IN PROGRESS</span>
+            <small class="scrub-pct">0%</small>
+          </div>
+          <div class="scrub-progress-bar"><i class="scrub-bar-fill"></i></div>
+          <div class="scrub-progress-footer">
+            <span class="scrub-speed">–</span>
+            <span class="scrub-eta">–</span>
+          </div>
+        </div>
+
+        <div class="storage-usage-bar-wrap">
+          <div class="storage-usage-top">
+            <span class="storage-percent ${percentClass(group.percent)}">${group.percent}%</span>
+            <span style="font-size:9px;color:var(--muted)">${bytes(group.used)} ${t("storage.used")} / ${bytes(group.total)} ${t("storage.total")}</span>
+          </div>
+          <div class="big-bar"><i class="${barClass(group.percent)}" style="width:${pct}%"></i></div>
+          <div class="storage-stats">
+            <span>${bytes(group.available)} ${t("common.free")}</span>
+            <span>${bytes(group.total)} ${t("storage.total")}</span>
+          </div>
+        </div>
+
+        <div class="storage-quick-stats">
+          <div class="storage-stat-cell">
+            <b>${group.fragmentation != null ? group.fragmentation + "%" : "–"}</b>
+            <small>Frag</small>
+          </div>
+          <div class="storage-stat-cell">
+            <b>${group.dedup != null ? group.dedup + "x" : "–"}</b>
+            <small>Dedup</small>
+          </div>
+          <div class="storage-stat-cell">
+            <b>${group.members.length}</b>
+            <small>Disks</small>
+          </div>
+          <div class="storage-stat-cell">
+            <b>${group.raidType || (group.type ? group.type.split(" ")[0] : "–")}</b>
+            <small>Type</small>
+          </div>
+        </div>
+
+        <div class="storage-member-list">${vdevTree}</div>
       </div>
-    </article>`).join("") : `<div class="error-box">${t("common.noDrives")}</div>`;
+    </article>`;
+  }).join("") : `<div class="error-box">${t("common.noDrives")}</div>`;
+
+  /* Wire up scrub buttons */
+  $$("button.scrub-btn").forEach(btn => {
+    btn.addEventListener("click", () => handleScrubToggle(btn));
+    /* Poll status on initial load for ZFS pools */
+    pollScrubStatus(btn.dataset.pool);
+  });
   renderContainers(docker);
 }
 
+const _scrubPollers = {};
+
+async function pollScrubStatus(pool) {
+  if (!pool) return;
+  try {
+    const res = await fetch(`/api/zfs/scrub/${encodeURIComponent(pool)}`, {cache: "no-store"});
+    if (!res.ok) return;
+    const data = await res.json();
+    const scrub = data.scrub || {};
+    const progressId = `progress-${encodeURIComponent(pool).replace(/%/g, "_")}`;
+    const scrubId = `scrub-${encodeURIComponent(pool).replace(/%/g, "_")}`;
+    const progressEl = $(`#${progressId}`);
+    const scrubBtn = $(`#${scrubId}`);
+    if (!progressEl) return;
+    if (scrub.state === "scanning") {
+      progressEl.classList.add("active");
+      progressEl.querySelector(".scrub-pct").textContent = `${(scrub.progress || 0).toFixed(1)}%`;
+      progressEl.querySelector(".scrub-bar-fill").style.width = `${scrub.progress || 0}%`;
+      progressEl.querySelector(".scrub-speed").textContent = scrub.speed || "–";
+      progressEl.querySelector(".scrub-eta").textContent = scrub.eta ? `ETA: ${scrub.eta}` : "–";
+      if (scrubBtn) { scrubBtn.classList.add("running"); scrubBtn.title = "Stop Scrub"; }
+      /* keep polling */
+      clearTimeout(_scrubPollers[pool]);
+      _scrubPollers[pool] = setTimeout(() => pollScrubStatus(pool), 3000);
+    } else {
+      progressEl.classList.remove("active");
+      if (scrubBtn) { scrubBtn.classList.remove("running"); scrubBtn.title = "Start ZFS Scrub"; }
+      if (scrub.state === "finished" && scrub.errors === 0) {
+        /* Only show finished state on first detection, not on every poll */
+      }
+      clearTimeout(_scrubPollers[pool]);
+    }
+  } catch (_) { /* ignore */ }
+}
+
+async function handleScrubToggle(btn) {
+  const pool = btn.dataset.pool;
+  if (!pool) return;
+  const isRunning = btn.classList.contains("running");
+  const endpoint = isRunning ? "/api/zfs/scrub/stop" : "/api/zfs/scrub";
+  btn.disabled = true;
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken},
+      body: JSON.stringify({pool}),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed");
+    if (isRunning) {
+      toast(`Scrub stopped: ${pool}`);
+      btn.classList.remove("running");
+      btn.title = "Start ZFS Scrub";
+      const progressId = `progress-${encodeURIComponent(pool).replace(/%/g, "_")}`;
+      $(`#${progressId}`)?.classList.remove("active");
+      clearTimeout(_scrubPollers[pool]);
+    } else {
+      toast(`Scrub started: ${pool}`);
+      setTimeout(() => pollScrubStatus(pool), 1500);
+    }
+  } catch (err) {
+    toast(`Scrub error: ${err.message}`, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function loadOverview(manual = false) {
-  if (busy) return scheduleLiveUpdate(500);
   busy = true;
   $("#refresh").classList.add("spinning");
   try {

@@ -1183,13 +1183,14 @@ def unraid_storage(disks):
 
 
 def zfs_storage(disks):
-    listing = host_command(["zpool", "list", "-Hp", "-o", "name,size,alloc,free,cap,health"])
+    listing = host_command(["zpool", "list", "-Hp", "-o", "name,size,alloc,free,cap,frag,dedup,health"])
     if not listing.strip():
         return []
     disk_map = {item["device"]: item for item in disks}
     status_output = host_command(["zpool", "status", "-P"])
     members_by_pool = {}
     current_pool = current_vdev = None
+    vdev_types_by_pool = {}
     for raw in status_output.splitlines():
         if raw.startswith("  pool:"):
             current_pool = raw.split(":", 1)[1].strip()
@@ -1204,6 +1205,7 @@ def zfs_storage(disks):
             continue
         if not node.startswith(("/dev/", "ata-", "wwn-", "nvme-")):
             current_vdev = node
+            vdev_types_by_pool.setdefault(current_pool, set()).add(re.split(r"[-\d]", node)[0])
             continue
         device = Path(node).name
         base = base_disk_name(device)
@@ -1215,26 +1217,77 @@ def zfs_storage(disks):
     result = []
     for line in listing.splitlines():
         parts = line.split("\t")
-        if len(parts) < 6:
+        if len(parts) < 8:
             parts = line.split()
-        if len(parts) < 6:
+        if len(parts) < 8:
             continue
-        name, size, allocated, free, capacity, health = parts[:6]
+        name, size, allocated, free, capacity, frag, dedup, health = parts[:8]
         try:
             total, used, available = int(size), int(allocated), int(free)
             percent = float(str(capacity).rstrip("%"))
+            frag_val = float(str(frag).rstrip("%")) if frag not in ("-", "", "no") else None
+            dedup_val = str(dedup).rstrip("x") if dedup not in ("-", "") else None
         except ValueError:
             continue
+        vdev_types = vdev_types_by_pool.get(name, set())
+        if "raidz3" in vdev_types:
+            raid_type = "RAIDZ-3"
+        elif "raidz2" in vdev_types:
+            raid_type = "RAIDZ-2"
+        elif "raidz1" in vdev_types or "raidz" in vdev_types:
+            raid_type = "RAIDZ-1"
+        elif "mirror" in vdev_types:
+            raid_type = "Mirror"
+        elif "draid" in vdev_types:
+            raid_type = "dRAID"
+        else:
+            raid_type = "Stripe"
         result.append({
             "name": name,
             "type": "ZFS pool",
+            "raidType": raid_type,
             "status": normalize_disk_state(health),
             "total": total,
             "used": used,
             "available": available,
             "percent": percent,
+            "fragmentation": frag_val,
+            "dedup": dedup_val,
             "members": members_by_pool.get(name, []),
         })
+    return result
+
+
+def zfs_pool_scrub_status(pool_name):
+    """Parse zpool status for a specific pool and return scrub progress info."""
+    output = host_command(["zpool", "status", "-P", pool_name])
+    result = {"pool": pool_name, "scrub": {"state": "none"}, "errors": "none"}
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("scan:"):
+            scan_info = stripped[len("scan:"):].strip()
+            if "scrub in progress" in scan_info or "resilver in progress" in scan_info:
+                progress_match = re.search(r"(\d+\.\d+)%", scan_info)
+                speed_match = re.search(r"([\d.]+ [KMGT]?B/s)", scan_info)
+                eta_match = re.search(r"(\d+ days? )?(\d+h\d+m|\d+:\d+:\d+) to go", scan_info)
+                result["scrub"] = {
+                    "state": "scanning",
+                    "progress": float(progress_match.group(1)) if progress_match else 0,
+                    "speed": speed_match.group(1) if speed_match else None,
+                    "eta": (eta_match.group(0).replace(" to go", "") if eta_match else None),
+                }
+            elif "scrub repaired" in scan_info or "repaired" in scan_info:
+                errors_match = re.search(r"(\d+) error", scan_info)
+                date_match = re.search(r"on (.+)$", scan_info)
+                result["scrub"] = {
+                    "state": "finished",
+                    "errors": int(errors_match.group(1)) if errors_match else 0,
+                    "completedAt": date_match.group(1).strip() if date_match else None,
+                }
+            elif "scrub canceled" in scan_info:
+                result["scrub"] = {"state": "canceled"}
+        if stripped.startswith("errors:"):
+            result["errors"] = stripped[len("errors:"):].strip()
     return result
 
 
@@ -2100,6 +2153,12 @@ class Handler(BaseHTTPRequestHandler):
                 ))
             except ValueError as exc:
                 self.send_json({"error": str(exc)}, 400)
+        elif path.startswith("/api/zfs/scrub/"):
+            pool = path.removeprefix("/api/zfs/scrub/").strip()
+            if not pool or not re.match(r"^[\w\-\.]+$", pool):
+                self.send_json({"error": "Invalid pool name"}, 400)
+                return
+            self.send_json(zfs_pool_scrub_status(pool))
         elif path.startswith("/api/"):
             self.send_json({"error": "Nicht gefunden"}, 404)
         else:
@@ -2157,6 +2216,34 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"output": cli_command(command)})
             except (ValueError, json.JSONDecodeError) as exc:
                 self.send_json({"error": str(exc)}, 400)
+            return
+        if path == "/api/zfs/scrub":
+            try:
+                length = min(int(self.headers.get("Content-Length", "0")), 1024)
+                payload = json.loads(self.rfile.read(length) or b"{}")
+                pool = str(payload.get("pool", "")).strip()
+                if not pool or not re.match(r"^[\w\-\.]+$", pool):
+                    self.send_json({"error": "Invalid pool name"}, 400)
+                    return
+                result = host_command(["zpool", "scrub", pool], timeout=10)
+                _cache.pop("storage", None)
+                self.send_json({"ok": True, "pool": pool, "output": result.strip()})
+            except Exception as exc:
+                self.send_json({"error": str(exc)}, 500)
+            return
+        if path == "/api/zfs/scrub/stop":
+            try:
+                length = min(int(self.headers.get("Content-Length", "0")), 1024)
+                payload = json.loads(self.rfile.read(length) or b"{}")
+                pool = str(payload.get("pool", "")).strip()
+                if not pool or not re.match(r"^[\w\-\.]+$", pool):
+                    self.send_json({"error": "Invalid pool name"}, 400)
+                    return
+                result = host_command(["zpool", "scrub", "-s", pool], timeout=10)
+                _cache.pop("storage", None)
+                self.send_json({"ok": True, "pool": pool, "output": result.strip()})
+            except Exception as exc:
+                self.send_json({"error": str(exc)}, 500)
             return
         match = re.fullmatch(r"/api/docker/([a-f0-9]{12,64})/(start|stop|restart)", path)
         if not match:
