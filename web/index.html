@@ -40,28 +40,33 @@
     <symbol id="icon-bell" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 7 3 7 3 7H3s3 0 3-7M10 20h4"/></symbol>
     <symbol id="icon-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
   </svg>
-  <aside class="sidebar">
-    <a class="brand" href="#overview" aria-label="Server Dashboard">
-      <span class="brand-mark"><img id="distro-logo" alt="" src="https://cdn.simpleicons.org/ubuntu/E95420"></span>
-      <span><strong id="distro-name">UBUNTU</strong><small>CONTROL</small></span>
-    </a>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <a class="brand" href="#overview" aria-label="Server Dashboard">
+        <span class="brand-mark"><img id="distro-logo" alt="" src="https://cdn.simpleicons.org/ubuntu/E95420"></span>
+        <span class="brand-text"><strong id="distro-name">UBUNTU</strong><small>CONTROL</small></span>
+      </a>
+      <button class="sidebar-collapse-btn" id="sidebar-collapse" title="Sidebar einklappen" aria-label="Sidebar einklappen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+    </div>
     <nav>
-      <button class="nav active" data-page="overview"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg><span data-i18n="nav.overview">Overview</span></button>
-      <button class="nav" data-page="docker"><svg viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 7v10l9 5 9-5V7M12 12v10"/></svg><span data-i18n="nav.containers">Containers</span></button>
-      <button class="nav" data-page="networks"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="18" r="2"/><path d="M12 7v4M5 16v-3h14v3M12 11H5"/></svg><span data-i18n="nav.networks">Networks</span></button>
-      <button class="nav" data-page="storage"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v7c0 1.7 4 3 9 3s9-1.3 9-3V5M3 12v7c0 1.7 4 3 9 3s9-1.3 9-3v-7"/></svg><span data-i18n="nav.storage">Storage</span></button>
-      <button class="nav" data-page="shares"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3V7Z"/><path d="M3 7V5h6l2 2"/></svg><span data-i18n="nav.shares">Data browser</span></button>
-      <button class="nav iframe-nav" data-page="iframe" hidden><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9 5 12l3 3M16 9l3 3-3 3M14 7l-4 10"/></svg><span data-i18n="nav.iframe">iFrame</span></button>
-      <button class="nav" data-page="processes"><svg viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg><span data-i18n="nav.processes">Processes</span></button>
-      <button class="nav" data-page="logs"><svg viewBox="0 0 24 24"><path d="M5 3h14v18H5zM8 8h8M8 12h8M8 16h5"/></svg><span data-i18n="nav.logs">System logs</span></button>
-      <button class="nav" data-page="cli"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9l3 3-3 3M13 15h4"/></svg><span data-i18n="nav.cli">CLI</span></button>
-      <button class="nav" data-page="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg><span data-i18n="nav.settings">Settings</span></button>
+      <button class="nav active" data-page="overview" title="Overview"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg><span data-i18n="nav.overview">Overview</span></button>
+      <button class="nav" data-page="docker" title="Containers"><svg viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 7v10l9 5 9-5V7M12 12v10"/></svg><span data-i18n="nav.containers">Containers</span></button>
+      <button class="nav" data-page="networks" title="Networks"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="18" r="2"/><path d="M12 7v4M5 16v-3h14v3M12 11H5"/></svg><span data-i18n="nav.networks">Networks</span></button>
+      <button class="nav" data-page="storage" title="Storage"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v7c0 1.7 4 3 9 3s9-1.3 9-3V5M3 12v7c0 1.7 4 3 9 3s9-1.3 9-3v-7"/></svg><span data-i18n="nav.storage">Storage</span></button>
+      <button class="nav" data-page="shares" title="Data browser"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3V7Z"/><path d="M3 7V5h6l2 2"/></svg><span data-i18n="nav.shares">Data browser</span></button>
+      <button class="nav iframe-nav" data-page="iframe" hidden title="iFrame"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9 5 12l3 3M16 9l3 3-3 3M14 7l-4 10"/></svg><span data-i18n="nav.iframe">iFrame</span></button>
+      <button class="nav" data-page="processes" title="Processes"><svg viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg><span data-i18n="nav.processes">Processes</span></button>
+      <button class="nav" data-page="logs" title="System logs"><svg viewBox="0 0 24 24"><path d="M5 3h14v18H5zM8 8h8M8 12h8M8 16h5"/></svg><span data-i18n="nav.logs">System logs</span></button>
+      <button class="nav" data-page="cli" title="CLI"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9l3 3-3 3M13 15h4"/></svg><span data-i18n="nav.cli">CLI</span></button>
+      <button class="nav" data-page="settings" title="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg><span data-i18n="nav.settings">Settings</span></button>
     </nav>
     <div class="side-foot">
-      <div class="sidebar-live"><span class="pulse"></span><span id="live-status">TICKRATE · 500 ms</span></div>
+      <div class="sidebar-live"><span class="pulse"></span><span id="live-status" class="live-text">TICKRATE · 500 ms</span></div>
       <div class="sidebar-version">
-        <span class="version-check" id="version-check"><i>✓</i><span data-i18n="version.latest">Latest version</span></span>
-        <small id="version">v– · latest</small>
+        <span class="version-check" id="version-check"><i>✓</i><span data-i18n="version.latest" class="version-text">Latest version</span></span>
+        <small id="version" class="version-text">v– · latest</small>
       </div>
     </div>
   </aside>
@@ -262,8 +267,27 @@
     </section>
 
     <section class="page" id="page-logs">
-      <div class="section-intro"><div><h2 data-i18n="nav.logs">System logs</h2><p id="log-source" data-i18n="section.logs">Recent host events</p></div></div>
-      <div class="panel log-panel"><pre id="log-output">Lade Logs…</pre></div>
+      <div class="section-intro">
+        <div><h2 data-i18n="nav.logs">System logs</h2><p id="log-source">Recent host events</p></div>
+        <div class="log-controls">
+          <div class="log-filter-chips" id="log-filter-chips">
+            <button class="log-chip active" data-filter="all">All</button>
+            <button class="log-chip" data-filter="err">Errors</button>
+            <button class="log-chip" data-filter="warn">Warnings</button>
+            <button class="log-chip" data-filter="kernel">Kernel</button>
+            <button class="log-chip" data-filter="storage">Storage</button>
+          </div>
+          <div class="log-search-wrap">
+            <svg class="ui-icon" aria-hidden="true"><use href="#icon-search"></use></svg>
+            <input id="log-search" type="search" placeholder="Filter logs…" autocomplete="off">
+          </div>
+          <button class="action" id="log-refresh" title="Refresh logs"><svg class="ui-icon"><use href="#icon-refresh"></use></svg></button>
+        </div>
+      </div>
+      <div class="panel log-panel">
+        <div class="log-stats" id="log-stats"></div>
+        <pre id="log-output">Loading logs…</pre>
+      </div>
     </section>
 
     <section class="page" id="page-cli">

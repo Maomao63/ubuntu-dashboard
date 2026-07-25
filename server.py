@@ -973,11 +973,21 @@ def normalize_disk_state(raw, temperature=None, smart_passed=None, disk_type="hd
     if smart_passed is False or any(word in state for word in (
         "fault", "fail", "error", "offline", "disabled", "invalid",
         "disk_np", "disk_dsbl", "disk_wrong", "red",
+        "faulted", "unavail", "removed",
     )):
         return "critical"
-    if any(word in state for word in ("warn", "degrad", "rebuild", "emulated", "missing", "yellow", "orange")):
+    if any(word in state for word in (
+        "warn", "degrad", "rebuild", "emulated", "missing", "yellow", "orange",
+        "degraded", "resilvering",
+    )):
         return "warning"
-    warning_temperature, critical_temperature = (70, 80) if disk_type == "ssd" else (50, 60)
+    # NVMe and SSD have higher temperature tolerance
+    if disk_type == "nvme":
+        warning_temperature, critical_temperature = 75, 85
+    elif disk_type == "ssd":
+        warning_temperature, critical_temperature = 65, 75
+    else:
+        warning_temperature, critical_temperature = 50, 60
     if temperature is not None and temperature >= critical_temperature:
         return "critical"
     if temperature is not None and temperature >= warning_temperature:
@@ -1073,15 +1083,24 @@ def sysfs_disk(name):
     except (TypeError, ValueError):
         temperature = None
     rotational = read_text(base / "queue/rotational", "1").strip()
+    # Detect NVMe explicitly
+    is_nvme = name.startswith("nvme")
+    if is_nvme:
+        disk_type = "nvme"
+    elif rotational == "0":
+        disk_type = "ssd"
+    else:
+        disk_type = "hdd"
     model = smart.get("model") or read_text(base / "device/model", name).strip() or name
     return {
         "name": name,
         "device": name,
         "model": model,
         "serial": smart.get("serial") or read_text(base / "device/serial").strip(),
-        "type": "ssd" if rotational == "0" else "hdd",
+        "type": disk_type,
+        "rotational": rotational != "0",
         "state": "standby" if smart.get("standby") else state,
-        "health": normalize_disk_state(state, temperature, smart.get("smartPassed"), "ssd" if rotational == "0" else "hdd"),
+        "health": normalize_disk_state(state, temperature, smart.get("smartPassed"), disk_type),
         "temperature": temperature,
         "size": size,
     }
@@ -1123,6 +1142,7 @@ def member_from_disk(disk, role=None, vdev=None):
         "state": disk.get("state", "running"),
         "temperature": disk.get("temperature"),
         "size": disk.get("size", 0),
+        "type": disk.get("type", "hdd"),
     }
 
 
@@ -1291,6 +1311,41 @@ def zfs_pool_scrub_status(pool_name):
     return result
 
 
+def zfs_datasets(pool_name=None):
+    """List ZFS datasets with usage info."""
+    cmd = ["zfs", "list", "-Hp", "-o", "name,used,avail,refer,mountpoint,type,compression,compressratio"]
+    if pool_name:
+        cmd.append(pool_name)
+    output = host_command(cmd, timeout=10)
+    if not output.strip():
+        return []
+    datasets = []
+    for line in output.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 8:
+            parts = line.split()
+        if len(parts) < 6:
+            continue
+        name, used, avail, refer, mountpoint, ds_type = parts[:6]
+        compression = parts[6] if len(parts) > 6 else "-"
+        compressratio = parts[7] if len(parts) > 7 else "-"
+        try:
+            datasets.append({
+                "name": name,
+                "pool": name.split("/")[0],
+                "type": ds_type,
+                "used": int(used),
+                "available": int(avail),
+                "refer": int(refer),
+                "mountpoint": mountpoint if mountpoint != "-" else None,
+                "compression": compression if compression != "off" else None,
+                "compressRatio": compressratio.rstrip("x") if compressratio not in ("-", "1.00x") else None,
+            })
+        except (ValueError, IndexError):
+            continue
+    return datasets
+
+
 def md_storage(disks):
     disk_map = {item["device"]: item for item in disks}
     records = mount_records()
@@ -1302,22 +1357,57 @@ def md_storage(disks):
             continue
         name, array_state, raid_level, devices = match.groups()
         members = []
+        # Track faulty devices (marked with F)
+        faulty_devices = set()
         for token in devices.split():
-            device_match = re.match(r"([A-Za-z0-9_-]+?)(?:p?\d+)?\[\d+\](?:\([A-Z]\))?$", token)
+            device_match = re.match(r"([A-Za-z0-9_-]+?)(?:p?\d+)?\[(\d+)\](\([A-Z]\))?$", token)
             if not device_match:
                 continue
             device = device_match.group(1)
+            flags = device_match.group(3) or ""
+            is_faulty = "F" in flags
+            is_spare = "S" in flags
+            if is_faulty:
+                faulty_devices.add(device)
             disk = disk_map.get(device, {"name": device, "device": device, "size": 0, "health": "healthy", "state": "running", "temperature": None})
-            members.append(member_from_disk(disk, "data", raid_level))
-        detail = lines[index + 1] if index + 1 < len(lines) else ""
-        degraded = "_" in detail or "inactive" in array_state.lower()
+            role = "spare" if is_spare else "parity" if raid_level in ("raid1", "raid5", "raid6", "raid10") and len(members) == 0 and raid_level != "raid1" else "data"
+            member = member_from_disk(disk, role, raid_level)
+            if is_faulty:
+                member["status"] = "critical"
+            members.append(member)
+        detail_line = lines[index + 1] if index + 1 < len(lines) else ""
+        degraded = "_" in detail_line or "inactive" in array_state.lower() or bool(faulty_devices)
+        rebuilding = "recovery" in detail_line or "resync" in detail_line
+        # Parse array status from detail line
+        active_match = re.search(r"(\d+)/(\d+)", detail_line)
+        active_disks = int(active_match.group(1)) if active_match else len(members)
+        total_disks = int(active_match.group(2)) if active_match else len(members)
+        # Determine status
+        if faulty_devices or (active_match and active_disks < total_disks):
+            status = "critical" if (total_disks - active_disks) > 1 else "warning"
+        elif rebuilding:
+            status = "warning"
+        elif degraded:
+            status = "warning"
+        else:
+            status = "healthy"
+        # Determine RAID type label
+        raid_pretty = {
+            "raid0": "RAID-0 (Stripe)", "raid1": "RAID-1 (Mirror)",
+            "raid4": "RAID-4", "raid5": "RAID-5",
+            "raid6": "RAID-6", "raid10": "RAID-10",
+            "linear": "Linear", "multipath": "Multipath",
+        }.get(raid_level.lower(), raid_level.upper())
         mount = next((item["mount"] for item in records if item["device"] in (f"/dev/{name}", f"/dev/md/{name}")), "")
         usage = filesystem_usage(mount) if mount else {"total": sum(item["size"] for item in members), "used": 0, "available": 0, "percent": 0}
         result.append({
             "name": name,
-            "type": f"Linux {raid_level}",
-            "status": "warning" if degraded else "healthy",
+            "type": f"Linux MD RAID",
+            "raidType": raid_pretty,
+            "status": status,
             "members": members,
+            "activeDrives": active_disks,
+            "totalDrives": total_disks,
             **usage,
         })
     return result
@@ -1426,11 +1516,16 @@ def generic_storage(disks):
         usage = filesystem_usage(selected["mount"]) if selected else {
             "total": disk["size"], "used": 0, "available": disk["size"], "percent": 0,
         }
+        disk_type = disk.get("type", "hdd").upper()
+        type_label = {
+            "NVME": "NVMe SSD", "SSD": "SATA SSD", "HDD": "Hard Drive"
+        }.get(disk_type, disk_type)
+        role = "system" if selected and selected["mount"] == "/" else "data"
         groups.append({
             "name": disk["model"] or disk["device"],
-            "type": f"{disk['type'].upper()} · /dev/{disk['device']}",
+            "type": f"{type_label} · /dev/{disk['device']}",
             "status": disk["health"],
-            "members": [member_from_disk(disk, "system" if selected and selected["mount"] == "/" else "data")],
+            "members": [member_from_disk(disk, role)],
             **usage,
         })
     return groups
@@ -1712,18 +1807,34 @@ def process_info():
 
 
 def log_info():
-    candidates = ["/var/log/syslog", "/var/log/messages", "/var/log/kern.log"]
+    # Try journalctl first for comprehensive system logs (journald-only modern systems)
+    journalctl_output = host_command(
+        ["journalctl", "-n", "300", "--no-pager", "--output=short-iso",
+         "--priority=0..7"],  # all priorities
+        timeout=8,
+    )
+    if journalctl_output.strip():
+        lines = journalctl_output.splitlines()
+        return {"source": "journald", "lines": lines[-300:]}
+
+    # Fall back to log files for older systems
+    candidates = [
+        "/var/log/syslog",
+        "/var/log/messages",
+        "/var/log/kern.log",
+        "/var/log/system.log",
+    ]
     for candidate in candidates:
         path = host_path(candidate)
         if path.is_file():
             try:
                 lines = path.read_text(errors="replace").splitlines()
-                return {"source": candidate, "lines": lines[-120:]}
+                return {"source": candidate, "lines": lines[-300:]}
             except OSError:
                 continue
     return {"source": "Dashboard", "lines": [
-        "Keine klassische Host-Logdatei gefunden.",
-        "Bei journald-only Systemen stehen Logs im Terminal über journalctl zur Verfügung."
+        "No classic host log file found.",
+        "On journald-only systems, logs are available in the CLI tab via journalctl.",
     ]}
 
 
@@ -2159,6 +2270,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"error": "Invalid pool name"}, 400)
                 return
             self.send_json(zfs_pool_scrub_status(pool))
+        elif path == "/api/zfs/datasets":
+            query = parse_qs(urlparse(self.path).query)
+            pool = query.get("pool", [None])[0]
+            if pool and not re.match(r"^[\w\-\.]+$", pool):
+                self.send_json({"error": "Invalid pool name"}, 400)
+                return
+            self.send_json({"datasets": zfs_datasets(pool)})
         elif path.startswith("/api/"):
             self.send_json({"error": "Nicht gefunden"}, 404)
         else:

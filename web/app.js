@@ -24,6 +24,21 @@ let notificationState = null;
 let networkDeleteTarget = null;
 const expandedNetworks = new Set();
 let iframeConfig = null;
+let _allLogLines = [];
+let _activeLogFilter = "all";
+
+/* ── Sidebar collapse ───────────────────────────────────────────── */
+(function setupSidebarCollapse() {
+  const btn = $("#sidebar-collapse");
+  if (!btn) return;
+  const saved = localStorage.getItem("ubuntu-dashboard-sidebar-collapsed");
+  if (saved === "1") document.body.classList.add("sidebar-collapsed");
+  btn.addEventListener("click", () => {
+    const collapsed = document.body.classList.toggle("sidebar-collapsed");
+    localStorage.setItem("ubuntu-dashboard-sidebar-collapsed", collapsed ? "1" : "0");
+  });
+})();
+
 
 function t(key) {
   return window.I18N?.[currentLanguage]?.[key] ?? window.I18N?.en?.[key] ?? key;
@@ -383,11 +398,19 @@ function render(data) {
   $("#storage-preview").onclick = event => {
     if (event.target.closest("[data-jump]")) setPage("storage");
   };
+  const tempClass = (t) => t === null ? "" : t >= 60 ? "temp-critical" : t >= 50 ? "temp-hot" : t >= 40 ? "temp-warm" : t < 20 ? "temp-cold" : "";
+  const diskTypeBadge = (disk) => {
+    const dev = (disk.device || "").toLowerCase();
+    const type = (disk.type || "").toLowerCase();
+    if (dev.startsWith("nvme") || type === "nvme") return `<span class="disk-type-badge nvme">NVMe</span>`;
+    if (type === "ssd" || disk.rotational === false) return `<span class="disk-type-badge ssd">SSD</span>`;
+    return `<span class="disk-type-badge hdd">HDD</span>`;
+  };
   $("#temperatures").innerHTML = system.disks.length
     ? system.disks.map(disk => `<div class="temp-row">
         <i class="disk-health ${disk.health}" title="${escapeHtml(t(`health.${disk.health}`))}"></i>
-        <span><b>${escapeHtml(disk.name)}</b><small>/dev/${escapeHtml(disk.device)} · ${escapeHtml(disk.model)} · ${escapeHtml(t(`disk.${disk.state}`))} · ${escapeHtml(t(`health.${disk.health}`))}</small></span>
-        <strong>${disk.temperature === null ? "–" : `${disk.temperature} °C`}</strong>
+        <span><b>${escapeHtml(disk.name)}${diskTypeBadge(disk)}</b><small>/dev/${escapeHtml(disk.device)} · ${escapeHtml(disk.model || "–")} · ${escapeHtml(t(`disk.${disk.state}`))} · ${escapeHtml(t(`health.${disk.health}`))}</small></span>
+        <strong class="${tempClass(disk.temperature)}">${disk.temperature === null ? "–" : `${disk.temperature} °C`}</strong>
       </div>`).join("")
     : `<span>${t("common.noDrives")}</span>`;
   $("#temperatures").classList.toggle("empty-state", !system.disks.length);
@@ -423,21 +446,85 @@ function render(data) {
       const key = m.vdev || m.role || "disk";
       (acc[key] = acc[key] || []).push(m);
       return acc;
-    }, {})).map(([vdev, members]) => `
+    }, {})).map(([vdev, members]) => {
+      const vdevKey = vdev.toLowerCase().split("-")[0];
+      const allHealthy = members.every(m => m.status === "healthy");
+      const hasCrit = members.some(m => m.status === "critical");
+      const vdevStatus = hasCrit ? "critical" : allHealthy ? "healthy" : "warning";
+      return `
       <div class="vdev-group">
         <div class="vdev-group-header">
-          <span class="vdev-badge ${escapeHtml(vdev.toLowerCase().split("-")[0])}">${escapeHtml(vdev)}</span>
+          <span class="vdev-badge ${vdevKey}">${escapeHtml(vdev)}</span>
           <span class="vdev-disk-count">${members.length} ${members.length === 1 ? "disk" : "disks"}</span>
+          <i class="disk-health ${vdevStatus}" style="margin-left:auto"></i>
         </div>
         <div class="vdev-members">
-          ${members.map(member => `
+          ${members.map(member => {
+            const devLow = (member.device || "").toLowerCase();
+            const isNvme = devLow.startsWith("nvme");
+            const diskTypeCls = isNvme ? "nvme" : (member.type === "ssd" ? "ssd" : "hdd");
+            const diskTypeLabel = isNvme ? "NVMe" : (member.type === "ssd" ? "SSD" : "HDD");
+            const tempCls = member.temperature == null ? "" :
+              member.temperature >= 60 ? "temp-critical" :
+              member.temperature >= 50 ? "temp-hot" :
+              member.temperature >= 40 ? "temp-warm" : "";
+            const sizeInfo = member.used !== undefined && member.role === "data"
+              ? `${bytes(member.used)} / ${bytes(member.total || member.size)}`
+              : bytes(member.size || 0);
+            return `
           <div class="storage-member">
             <i class="disk-health ${member.status}"></i>
-            <div><b>${escapeHtml(member.name)}</b><small>/dev/${escapeHtml(member.device)}</small></div>
-            <span>${member.temperature != null ? `${member.temperature} °C · ` : ""}${member.used !== undefined && member.role === "data" ? `${bytes(member.used)} / ${bytes(member.total || member.size)}` : bytes(member.size)}</span>
-          </div>`).join("")}
+            <div>
+              <b>${escapeHtml(member.name)}<span class="disk-type-badge ${diskTypeCls}">${diskTypeLabel}</span></b>
+              <small>/dev/${escapeHtml(member.device)}</small>
+            </div>
+            <span>
+              ${member.temperature != null ? `<span class="${tempCls}">${member.temperature}°C</span> · ` : ""}${sizeInfo}
+            </span>
+          </div>`;
+          }).join("")}
         </div>
-      </div>`).join("");
+      </div>`;
+    }).join("");
+
+    /* ZFS-specific extra info */
+    const zfsExtras = isZfs(group) ? `
+      <div class="storage-quick-stats">
+        <div class="storage-stat-cell">
+          <b>${group.fragmentation != null ? group.fragmentation + "%" : "–"}</b>
+          <small>Fragmentation</small>
+        </div>
+        <div class="storage-stat-cell">
+          <b>${group.dedup != null ? group.dedup + "x" : "–"}</b>
+          <small>Dedup</small>
+        </div>
+        <div class="storage-stat-cell">
+          <b>${group.members.length}</b>
+          <small>Drives</small>
+        </div>
+        <div class="storage-stat-cell">
+          <b>${group.raidType || "Stripe"}</b>
+          <small>Topology</small>
+        </div>
+      </div>` : `
+      <div class="storage-quick-stats">
+        <div class="storage-stat-cell">
+          <b>${group.members.length}</b>
+          <small>Drives</small>
+        </div>
+        <div class="storage-stat-cell">
+          <b>${group.raidType || (group.type ? group.type.split(" ")[0] : "–")}</b>
+          <small>Type</small>
+        </div>
+        <div class="storage-stat-cell">
+          <b>${bytes(group.available)}</b>
+          <small>Free</small>
+        </div>
+        <div class="storage-stat-cell">
+          <b>${group.percent}%</b>
+          <small>Used</small>
+        </div>
+      </div>`;
 
     return `
     <article class="storage-card ${statusClass}" data-pool="${escapeHtml(group.name)}">
@@ -484,26 +571,10 @@ function render(data) {
           </div>
         </div>
 
-        <div class="storage-quick-stats">
-          <div class="storage-stat-cell">
-            <b>${group.fragmentation != null ? group.fragmentation + "%" : "–"}</b>
-            <small>Frag</small>
-          </div>
-          <div class="storage-stat-cell">
-            <b>${group.dedup != null ? group.dedup + "x" : "–"}</b>
-            <small>Dedup</small>
-          </div>
-          <div class="storage-stat-cell">
-            <b>${group.members.length}</b>
-            <small>Disks</small>
-          </div>
-          <div class="storage-stat-cell">
-            <b>${group.raidType || (group.type ? group.type.split(" ")[0] : "–")}</b>
-            <small>Type</small>
-          </div>
-        </div>
+        ${zfsExtras}
 
         <div class="storage-member-list">${vdevTree}</div>
+        ${isZfs(group) ? `<div class="zfs-datasets-section" id="zfs-ds-${encodeURIComponent(group.name).replace(/%/g, "_")}"><div class="zfs-ds-loading">Loading datasets…</div></div>` : ""}
       </div>
     </article>`;
   }).join("") : `<div class="error-box">${t("common.noDrives")}</div>`;
@@ -514,6 +585,12 @@ function render(data) {
     /* Poll status on initial load for ZFS pools */
     pollScrubStatus(btn.dataset.pool);
   });
+
+  /* Load ZFS datasets for each ZFS pool */
+  data.storage.filter(g => isZfs(g)).forEach(group => {
+    loadZfsDatasets(group.name);
+  });
+
   renderContainers(docker);
 }
 
@@ -583,6 +660,43 @@ async function handleScrubToggle(btn) {
     btn.disabled = false;
   }
 }
+
+async function loadZfsDatasets(poolName) {
+  const sectionId = `zfs-ds-${encodeURIComponent(poolName).replace(/%/g, "_")}`;
+  const section = $(`#${sectionId}`);
+  if (!section) return;
+  try {
+    const res = await fetch(`/api/zfs/datasets?pool=${encodeURIComponent(poolName)}`, {cache: "no-store"});
+    if (!res.ok) { section.innerHTML = ""; return; }
+    const data = await res.json();
+    const datasets = (data.datasets || []).filter(ds => ds.name !== poolName);
+    if (!datasets.length) { section.innerHTML = ""; return; }
+    section.innerHTML = `
+      <div class="zfs-datasets-head">
+        <span>DATASETS</span><span>${datasets.length}</span>
+      </div>
+      <div class="zfs-datasets-list">
+        ${datasets.map(ds => {
+          const shortName = ds.name.includes("/") ? ds.name.slice(ds.name.indexOf("/") + 1) : ds.name;
+          const total = ds.used + ds.available;
+          const pct = total > 0 ? Math.round(ds.used / total * 100) : 0;
+          const comp = ds.compressRatio ? `${ds.compressRatio}x` : "";
+          return `<div class="zfs-dataset-row">
+            <span class="zfs-ds-icon">${ds.type === "volume" ? "▦" : "▤"}</span>
+            <div class="zfs-ds-info">
+              <b>${escapeHtml(shortName)}</b>
+              <small>${ds.mountpoint ? escapeHtml(ds.mountpoint) : ds.type}${comp ? ` · ${comp}` : ""}</small>
+            </div>
+            <div class="zfs-ds-usage">
+              <span>${bytes(ds.used)} used</span>
+              <div class="zfs-ds-bar"><i style="width:${pct}%"></i></div>
+            </div>
+          </div>`;
+        }).join("")}
+      </div>`;
+  } catch { section.innerHTML = ""; }
+}
+
 
 async function loadOverview(manual = false) {
   busy = true;
@@ -1127,10 +1241,70 @@ async function loadLogs() {
   try {
     const response = await fetch("/api/logs");
     const data = await response.json();
-    $("#log-source").textContent = `Quelle: ${data.source}`;
-    $("#log-output").textContent = data.lines.join("\n");
-    $("#log-output").scrollTop = $("#log-output").scrollHeight;
+    $("#log-source").textContent = `Source: ${data.source} · ${data.lines.length} lines`;
+    _allLogLines = data.lines;
+    renderLogOutput(_allLogLines, _activeLogFilter, $("#log-search")?.value?.trim() || "");
   } catch (error) { $("#log-output").textContent = error.message; }
+}
+
+function classifyLogLine(line) {
+  const l = line.toLowerCase();
+  if (/\b(emerg|alert|crit|error|err|fail|fatal)\b/.test(l) || / error /i.test(l)) return "err";
+  if (/\b(warn|warning)\b/.test(l)) return "warn";
+  if (/\bkernel\b|\[kernel\]|\bkern\b/.test(l) || /^\w{3}\s+\d+\s+\S+\s+\S+\s+kernel:/.test(line)) return "kernel";
+  if (/\b(zfs|zpool|md|mdadm|raid|disk|nvme|sda|sdb|sdc|btrfs|xfs|ext4)\b/.test(l)) return "storage";
+  return "info";
+}
+
+function renderLogOutput(lines, filter, search) {
+  const output = $("#log-output");
+  if (!output) return;
+  let errCount = 0, warnCount = 0, storageCount = 0;
+  const html = lines.map(line => {
+    const cls = classifyLogLine(line);
+    if (cls === "err") errCount++;
+    else if (cls === "warn") warnCount++;
+    else if (cls === "storage") storageCount++;
+    const visible = (filter === "all" || filter === cls) &&
+      (!search || line.toLowerCase().includes(search.toLowerCase()));
+    const escaped = escapeHtml(line);
+    const lineClass = cls === "err" ? "log-line-err" : cls === "warn" ? "log-line-warn" :
+      cls === "kernel" ? "log-line-kernel" : "log-line-info";
+    return `<span class="${lineClass}${visible ? "" : " log-line-hidden"}">${escaped}</span>`;
+  }).join("\n");
+  output.innerHTML = html || `<span class="log-line-info">No logs to display</span>`;
+  const statsEl = $("#log-stats");
+  if (statsEl) {
+    statsEl.innerHTML = `
+      <span class="log-stat"><span class="log-stat-count err">${errCount}</span> errors</span>
+      <span class="log-stat"><span class="log-stat-count warn">${warnCount}</span> warnings</span>
+      <span class="log-stat"><span class="log-stat-count">${storageCount}</span> storage events</span>
+      <span class="log-stat"><span class="log-stat-count">${lines.length}</span> total lines</span>`;
+  }
+  /* Scroll to last visible line */
+  const lastVisible = [...output.querySelectorAll("span:not(.log-line-hidden)")].pop();
+  if (lastVisible) lastVisible.scrollIntoView({block: "end"});
+}
+
+/* Log filter chip handlers */
+$$(".log-chip").forEach(chip => {
+  chip.addEventListener("click", () => {
+    _activeLogFilter = chip.dataset.filter;
+    $$(".log-chip").forEach(c => c.classList.toggle("active", c === chip));
+    renderLogOutput(_allLogLines, _activeLogFilter, $("#log-search")?.value?.trim() || "");
+  });
+});
+
+const logSearchInput = $("#log-search");
+if (logSearchInput) {
+  logSearchInput.addEventListener("input", () => {
+    renderLogOutput(_allLogLines, _activeLogFilter, logSearchInput.value.trim());
+  });
+}
+
+const logRefreshBtn = $("#log-refresh");
+if (logRefreshBtn) {
+  logRefreshBtn.addEventListener("click", () => loadLogs());
 }
 
 function setSshStatus(state, text) {
