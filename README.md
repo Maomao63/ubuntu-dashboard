@@ -45,14 +45,11 @@ host names, addresses, account names, paths or other user information.
 - Docker network inventory with custom bridge-network creation, protected
   defaults and confirmation-gated deletion
 - Accurate connected-container counts from Docker network inspection
-- Optional Services workspace with automatic Docker app health, configurable
-  integrations, Gluetun route details and a color-coded Sonarr/Radarr calendar
-- Common Homarr/Homepage-style app presets plus custom URL, status endpoint,
-  container link and API authentication support
 - Writable Data Browser with automatic SMB, NFS and mounted-data-root detection
 - File owner, group, symbolic permissions and octal mode display
 - Create, edit and delete folders and UTF-8 text/YAML/configuration files
 - Instant file and folder name search in the current Data Browser directory
+- Optional iFrame tab for embedding Homarr, Homepage or another Docker web UI
 - Interactive host terminal backed by a real SSH session
 - Host process and classic log-file views
 - Drag-and-drop overview layout with browser-local persistence
@@ -70,8 +67,8 @@ host names, addresses, account names, paths or other user information.
 - `linux/amd64` or `linux/arm64`
 - Port `8080` available, or another port configured through `DASHBOARD_PORT`
 - A running SSH server if the integrated CLI should be used
-- Outbound HTTPS access for GitHub version checks, registry update checks,
-  optional Discord notifications and optional Services integrations
+- Outbound HTTPS access for GitHub version checks, registry update checks and
+  optional Discord notifications
 
 The published image is:
 
@@ -163,8 +160,8 @@ services:
 image. The container itself remains read-only; only `/tmp`, the persistent
 configuration directory and the explicitly mounted host paths are writable.
 `DASHBOARD_CONFIG_PATH` may point to any relative or absolute host directory.
-The directory contains `config.json` for core settings and, when the optional
-Services workspace is used, a separate `services.json` for its integrations.
+The directory contains `config.json` with the account and Discord preferences.
+Enabling the optional iFrame tab creates a separate `iframe.json`.
 
 ## Persistent configuration
 
@@ -191,43 +188,35 @@ writable by the container.
 | File | Contents |
 | --- | --- |
 | `config.json` | Account, Discord webhook and notification preferences |
-| `services.json` | Services enable state, app integrations, API keys, colors and Gluetun access |
+| `iframe.json` | iFrame enable state, URL and optional port |
 
-The Discord webhook, password hash and integration credentials are sensitive.
-Both files are written with mode `0600`. Do not commit the configuration
-directory to Git, and include it in protected server backups.
+The Discord webhook token and password hash are sensitive. Do not commit the
+configuration directory to Git, and include it in protected server backups.
 Browser-only preferences such as language and card order remain in the
 browser's local storage.
 
-## Optional Services workspace
+## Optional iFrame tab
 
-The **Services** workspace is disabled by default. Enable it under
-**Settings → Services tab**. Disabling it hides the navigation entry and also
-stops server-side Docker, application, calendar, Gluetun and IP-location
-requests for that workspace.
+The iFrame tab is disabled by default. Enable it under
+**Settings → iFrame tab**. Disabling the switch immediately removes the
+navigation entry, unloads the embedded page and redirects an open iFrame tab
+back to the overview.
 
-Once enabled, the page provides:
+After activation, open **iFrame → Configure iFrame** and enter the address your
+browser uses for Homarr, Homepage or another Docker web interface:
 
-- Automatic cards for every Docker container, including runtime and health
-- App integrations with URL reachability checks, optional Docker-container
-  linking and configurable status paths
-- Presets for common media, download, network, smart-home, storage,
-  authentication and monitoring containers used with Homepage and Homarr
-- Authentication through API-key headers, bearer tokens or HTTP Basic auth
-- Multiple Sonarr and Radarr instances with an individual calendar color
-- A month calendar with release details and instance filtering by color
-- Optional Gluetun VPN state, public IP, country and linked-container health
+```text
+URL:  http://192.168.1.20
+Port: 7575
+```
 
-The presets do not restrict the supported apps: choose **Custom** for any
-HTTP/HTTPS service. Sonarr and Radarr have dedicated calendar support; Gluetun
-has a dedicated VPN card. Other apps receive a general reachability and
-Docker-health card. All outbound integration requests originate from the
-dashboard container, so use URLs reachable from that container, such as a
-Compose service name and internal port.
-
-API keys and passwords are accepted by the backend, stored only in
-`services.json`, and never returned to the browser. Leaving an already
-configured secret field blank keeps the existing value.
+The resulting address is stored in `iframe.json` and embedded directly in the
+dashboard. Use a browser-accessible host address; a Compose service name such
+as `homarr` normally resolves only inside Docker. When the dashboard itself is
+served over HTTPS, the embedded page should also use HTTPS to avoid browser
+mixed-content blocking. The target application or reverse proxy must permit
+embedding and must not send a conflicting `X-Frame-Options` or
+`frame-ancestors` policy.
 
 ### Migrating from the former named volume
 
@@ -303,7 +292,7 @@ SESSION_TTL=43200
 | `DASHBOARD_PORT` | `8080` | Port exposed on the Docker host |
 | `DASHBOARD_USER` | `admin` | Username used to create the initial account |
 | `DASHBOARD_PASSWORD` | `change-this-password-now` | Initial account password; change before deployment |
-| `DASHBOARD_CONFIG_PATH` | `./config` | Host directory containing `config.json` and optional `services.json` |
+| `DASHBOARD_CONFIG_PATH` | `./config` | Host directory containing `config.json` and optional `iframe.json` |
 | `ALLOW_DOCKER_ACTIONS` | `true` | Allows container start, stop and restart actions |
 | `SHARE_ROOTS` | empty | Additional comma-separated Data Browser roots |
 | `SSH_HOST` | `auto` | SSH target; `auto` uses the dashboard host name or IP |
@@ -327,7 +316,7 @@ The mounts in `compose.yml` have distinct purposes:
 | `/proc/1/net/route` | Host default-route detection | Read-only |
 | `/sys:/host/sys` | Network counters, block devices and hardware telemetry | Read-only |
 | `/var/run/docker.sock` | Docker inventory, health and container actions | Read/write |
-| `${DASHBOARD_CONFIG_PATH:-./config}:/data` | Core `config.json` and optional `services.json` | Persistent, read/write |
+| `${DASHBOARD_CONFIG_PATH:-./config}:/data` | `config.json` and optional `iframe.json` | Persistent, read/write |
 
 `privileged: true` is required for broad physical-disk and SMART access across
 different Linux hosts. Virtual machines may expose only virtual disks and no

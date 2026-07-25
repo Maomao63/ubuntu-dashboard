@@ -50,7 +50,7 @@
       <button class="nav" data-page="networks"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="18" r="2"/><path d="M12 7v4M5 16v-3h14v3M12 11H5"/></svg><span data-i18n="nav.networks">Networks</span></button>
       <button class="nav" data-page="storage"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v7c0 1.7 4 3 9 3s9-1.3 9-3V5M3 12v7c0 1.7 4 3 9 3s9-1.3 9-3v-7"/></svg><span data-i18n="nav.storage">Storage</span></button>
       <button class="nav" data-page="shares"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3V7Z"/><path d="M3 7V5h6l2 2"/></svg><span data-i18n="nav.shares">Data browser</span></button>
-      <button class="nav services-nav" data-page="services" hidden><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg><span data-i18n="nav.services">Services</span></button>
+      <button class="nav iframe-nav" data-page="iframe" hidden><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9 5 12l3 3M16 9l3 3-3 3M14 7l-4 10"/></svg><span data-i18n="nav.iframe">iFrame</span></button>
       <button class="nav" data-page="processes"><svg viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg><span data-i18n="nav.processes">Processes</span></button>
       <button class="nav" data-page="logs"><svg viewBox="0 0 24 24"><path d="M5 3h14v18H5zM8 8h8M8 12h8M8 16h5"/></svg><span data-i18n="nav.logs">System logs</span></button>
       <button class="nav" data-page="cli"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9l3 3-3 3M13 15h4"/></svg><span data-i18n="nav.cli">CLI</span></button>
@@ -234,39 +234,25 @@
       </div>
     </section>
 
-    <section class="page services-page" id="page-services">
+    <section class="page iframe-page" id="page-iframe">
       <div class="section-intro service-page-intro">
-        <div><h2 data-i18n="services.title">Services</h2><p data-i18n="services.description">Your media schedule, app health and VPN route in one place.</p></div>
-        <button class="browser-create page-primary-action" id="services-configure"><svg class="ui-icon"><use href="#icon-edit"></use></svg><span data-i18n="services.configure">Configure services</span></button>
+        <div><h2 data-i18n="iframe.title">iFrame</h2><p data-i18n="iframe.description">Embed a Homarr, Homepage or another Docker web interface.</p></div>
+        <div class="iframe-actions">
+          <a class="action iframe-open" id="iframe-open" href="#" target="_blank" rel="noopener noreferrer" hidden><svg class="ui-icon"><use href="#icon-open"></use></svg><span data-i18n="iframe.open">Open separately</span></a>
+          <button class="action" id="iframe-refresh" type="button" hidden><svg class="ui-icon"><use href="#icon-refresh"></use></svg><span data-i18n="iframe.refresh">Reload</span></button>
+          <button class="browser-create page-primary-action" id="iframe-configure" type="button"><svg class="ui-icon"><use href="#icon-edit"></use></svg><span data-i18n="iframe.configure">Configure iFrame</span></button>
+        </div>
       </div>
-      <div id="service-cards" class="service-cards">
-        <div class="panel services-empty" data-i18n="services.loading">Loading services…</div>
-      </div>
-      <article class="panel media-calendar">
-        <div class="calendar-toolbar">
-          <div>
-            <small data-i18n="services.mediaSchedule">MEDIA SCHEDULE</small>
-            <h3 id="calendar-month">–</h3>
-          </div>
-          <div class="calendar-legend" id="calendar-legend"></div>
-          <div class="calendar-controls">
-            <button class="action" id="calendar-previous" type="button" aria-label="Previous month">←</button>
-            <button class="action calendar-today" id="calendar-today" type="button" data-i18n="services.today">Today</button>
-            <button class="action" id="calendar-next" type="button" aria-label="Next month">→</button>
-          </div>
+      <article class="panel iframe-panel">
+        <div class="iframe-empty" id="iframe-empty">
+          <span>&lt;/&gt;</span>
+          <h3 data-i18n="iframe.emptyTitle">No web interface configured</h3>
+          <p data-i18n="iframe.emptyDescription">Add a browser-accessible URL and optional port to embed it here.</p>
+          <button class="browser-create" id="iframe-empty-configure" type="button" data-i18n="iframe.add">Add iFrame</button>
         </div>
-        <div class="calendar-weekdays" id="calendar-weekdays"></div>
-        <div class="calendar-grid" id="calendar-grid">
-          <div class="calendar-loading" data-i18n="services.calendarEmpty">Add a Sonarr or Radarr instance to fill your calendar.</div>
-        </div>
+        <iframe id="embedded-app" title="Embedded web interface" loading="lazy" referrerpolicy="no-referrer" hidden></iframe>
       </article>
-      <article class="panel docker-service-panel">
-        <div class="panel-head">
-          <div><span class="panel-icon"><svg class="ui-icon"><use href="#icon-docker"></use></svg></span><h3 data-i18n="services.dockerRuntime">Docker runtime</h3></div>
-          <span id="service-docker-summary" class="service-panel-status">–</span>
-        </div>
-        <div id="service-docker-grid" class="service-docker-grid"></div>
-      </article>
+      <p class="iframe-footnote" data-i18n="iframe.browserHint">Use an address reachable by your browser, for example http://SERVER-IP with port 7575. Docker-internal service names usually work only inside Docker.</p>
     </section>
 
     <section class="page" id="page-processes">
@@ -347,10 +333,10 @@
             <option value="pl">PL · Polski</option>
           </select>
         </article>
-        <article class="panel services-toggle-card">
-          <span class="preferences-icon">◫</span>
-          <div><h3 data-i18n="services.settingsTitle">Services tab</h3><p data-i18n="services.settingsDescription">Show media calendar, ARR integrations and VPN status in the sidebar.</p></div>
-          <label class="setting-switch"><input id="services-enabled" type="checkbox"><span><i></i></span><b id="services-enabled-label" data-i18n="common.disabled">Disabled</b></label>
+        <article class="panel iframe-toggle-card">
+          <span class="preferences-icon">&lt;/&gt;</span>
+          <div><h3 data-i18n="iframe.settingsTitle">iFrame tab</h3><p data-i18n="iframe.settingsDescription">Enable an optional embedded web interface in the sidebar.</p></div>
+          <label class="setting-switch"><input id="iframe-enabled" type="checkbox"><span><i></i></span><b id="iframe-enabled-label">Disabled</b></label>
         </article>
         <article class="panel notification-card">
           <div class="notification-head">
@@ -433,44 +419,17 @@
     </form>
   </dialog>
 
-  <dialog id="services-dialog" class="app-dialog services-dialog">
-    <form id="services-form" autocomplete="off">
-      <div class="dialog-head">
-        <div><small data-i18n="services.integrations">INTEGRATIONS</small><h3 data-i18n="services.configure">Configure services</h3></div>
-        <button type="button" class="dialog-close" data-close-dialog="services-dialog">×</button>
+  <dialog id="iframe-dialog" class="app-dialog small-dialog">
+    <form id="iframe-form" autocomplete="off">
+      <div class="dialog-head"><div><small>IFRAME</small><h3 data-i18n="iframe.configure">Configure iFrame</h3></div><button type="button" class="dialog-close" data-close-dialog="iframe-dialog">×</button></div>
+      <p class="iframe-dialog-copy" data-i18n="iframe.dialogHint">Enter the address your browser uses to open Homarr, Homepage or another web UI.</p>
+      <div class="iframe-fields">
+        <label><span data-i18n="iframe.url">URL or host</span><input id="iframe-url" placeholder="http://192.168.1.10" required></label>
+        <label><span data-i18n="iframe.port">Port (optional)</span><input id="iframe-port" type="number" min="1" max="65535" placeholder="7575"></label>
       </div>
-      <p class="services-dialog-copy" data-i18n="services.secretHint">API keys are stored only in services.json and are never sent back to the browser.</p>
-      <section class="integration-editor">
-        <div class="integration-editor-head">
-          <div><h4 data-i18n="services.apps">Apps & integrations</h4><small data-i18n="services.multipleHint">Add multiple apps; Sonarr and Radarr also populate the calendar.</small></div>
-          <div class="integration-add">
-            <select id="service-preset" aria-label="Integration type"></select>
-            <button class="action" id="add-service" type="button" data-i18n="services.add">+ Add</button>
-          </div>
-        </div>
-        <div id="arr-instance-list" class="arr-instance-list"></div>
-      </section>
-      <section class="integration-editor gluetun-editor">
-        <div class="integration-editor-head">
-          <div><h4>Gluetun VPN</h4><small data-i18n="services.gluetunHint">Display tunnel health, public IP and current country.</small></div>
-          <label class="setting-switch"><input id="gluetun-enabled" type="checkbox"><span><i></i></span><b data-i18n="common.enabled">Enabled</b></label>
-        </div>
-        <div class="gluetun-fields">
-          <label><span data-i18n="services.url">Control server URL</span><input id="gluetun-url" type="url" placeholder="http://gluetun:8000"></label>
-          <label><span data-i18n="services.containerName">Docker container name</span><input id="gluetun-container" placeholder="gluetun"></label>
-          <label><span data-i18n="services.authentication">Authentication</span><select id="gluetun-auth"><option value="none" data-i18n="services.authNone">None</option><option value="apikey">API key</option><option value="basic">Basic auth</option></select></label>
-          <label class="gluetun-api-field"><span>API key</span><input id="gluetun-api-key" type="password" autocomplete="new-password"></label>
-          <label class="gluetun-basic-field"><span data-i18n="services.username">Username</span><input id="gluetun-username" autocomplete="off"></label>
-          <label class="gluetun-basic-field"><span data-i18n="services.password">Password</span><input id="gluetun-password" type="password" autocomplete="new-password"></label>
-        </div>
-      </section>
-      <small id="services-dialog-error" role="alert"></small>
-      <div class="dialog-actions"><button type="button" class="action" data-close-dialog="services-dialog" data-i18n="common.cancel">Cancel</button><button type="submit" class="dialog-primary" data-i18n="services.save">Save services</button></div>
+      <small id="iframe-dialog-error" role="alert"></small>
+      <div class="dialog-actions"><button type="button" class="action" data-close-dialog="iframe-dialog" data-i18n="common.cancel">Cancel</button><button type="submit" class="dialog-primary" data-i18n="iframe.save">Save iFrame</button></div>
     </form>
-  </dialog>
-
-  <dialog id="calendar-event-dialog" class="app-dialog calendar-event-dialog">
-    <div id="calendar-event-content"></div>
   </dialog>
 
   <div id="toast" role="status"></div>
